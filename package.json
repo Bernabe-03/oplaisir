@@ -15,7 +15,8 @@
     "prisma:migrate": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "postbuild": "prisma generate",
-    "render:build": "npm ci && npm run prisma:generate && npm run build && npm run prisma:migrate"
+    "render:build": "npm ci && npm run prisma:generate && npm run build && npm run prisma:migrate",
+    "seed": "ts-node --transpile-only prisma/seed.ts"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -51,14 +52,14 @@
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
-    "@types/node": "^22.10.7",
-    "@types/multer": "^1.4.11",
-    "@types/passport-jwt": "^4.0.1",
     "@types/bcrypt": "^6.0.0",
+    "@types/multer": "^1.4.11",
+    "@types/node": "^22.10.7",
+    "@types/passport-jwt": "^4.0.1",
     "@types/pdfkit": "^0.17.4",
-    "typescript": "^5.7.3",
-    "ts-node": "^10.9.2",
     "eslint": "^9.18.0",
-    "prettier": "^3.4.2"
+    "prettier": "^3.4.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
   }
 }
