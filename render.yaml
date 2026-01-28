@@ -2,12 +2,19 @@ services:
   - type: web
     name: oplaisir-backend
     env: node
-    region: frankfurt  # Choisissez la région la plus proche
+    region: frankfurt
+    plan: free
+    # Optimisations pour le plan gratuit
+    disk:
+      name: npm-cache
+      mountPath: /opt/render/.npm
+      sizeGB: 1
     buildCommand: |
-      npm ci
+      npm ci --cache .npm --prefer-offline
       npx prisma generate
-      npm run build
-    startCommand: npm run start:prod
+      NODE_OPTIONS='--max-old-space-size=512' npm run build
+      npx prisma migrate deploy
+    startCommand: NODE_OPTIONS='--max-old-space-size=256 --optimize-for-size' npm run start:prod
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
@@ -16,6 +23,16 @@ services:
         fromDatabase:
           name: oplaisir_db
           property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CLOUDINARY_CLOUD_NAME
+        value: ddzeorfke
+      - key: CLOUDINARY_API_KEY
+        value: 655745671238893
+      - key: CLOUDINARY_API_SECRET
+        value: VNCxnqle6n-Nv3zuVY5jw3otpqs
+      - key: CORS_ORIGINS
+        value: https://oplaisir-gules.vercel.app,http://localhost:5173
     autoDeploy: true
 
 databases:

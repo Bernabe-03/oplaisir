@@ -46,23 +46,29 @@
 import { NestFactory } from '@nestjs/core'
 import { AppModule } from './app.module'
 import { ValidationPipe } from '@nestjs/common'
+import * as compression from 'compression'
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule)
+  // Créer l'app avec des options réduites
+  const app = await NestFactory.create(AppModule, {
+    logger: ['error', 'warn', 'log'], // Réduire les logs
+    bufferLogs: true,
+  })
+
+  // Compression pour réduire la taille des réponses
+  app.use(compression())
 
   // Configuration CORS pour production
   const allowedOrigins = [
-    'https://oplaisir-gules.vercel.app', // Votre frontend Vercel
-    'http://localhost:5173', // Pour développement local
-    'http://localhost:3000', // Pour développement local
+    'https://oplaisir-gules.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:3000',
   ]
 
   app.enableCors({
     origin: (origin, callback) => {
-      // Permettre les requêtes sans origine (comme les apps mobile ou curl)
       if (!origin) return callback(null, true)
-      
-      if (allowedOrigins.indexOf(origin) !== -1) {
+      if (allowedOrigins.includes(origin)) {
         callback(null, true)
       } else {
         console.warn(`CORS bloqué pour l'origine: ${origin}`)
@@ -71,15 +77,9 @@ async function bootstrap() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'X-Refresh-Token',
-      'Accept',
-      'Origin',
-      'X-Requested-With'
-    ],
-    exposedHeaders: ['Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    exposedHeaders: ['Authorization'],
+    maxAge: 86400, // Cache preflight requests for 24h
   })
 
   app.setGlobalPrefix('api')
@@ -88,7 +88,10 @@ async function bootstrap() {
     new ValidationPipe({
       whitelist: true,
       transform: true,
-      forbidNonWhitelisted: false
+      forbidNonWhitelisted: false,
+      transformOptions: {
+        enableImplicitConversion: true,
+      },
     })
   )
 
@@ -96,9 +99,7 @@ async function bootstrap() {
   await app.listen(port, '0.0.0.0')
 
   console.log(`🚀 Serveur démarré sur le port ${port}`)
-  console.log(`🌐 Environnement: ${process.env.NODE_ENV || 'development'}`)
-  console.log(`✅ CORS configuré pour les origines suivantes:`)
-  allowedOrigins.forEach(origin => console.log(`   - ${origin}`))
+  console.log(`📊 Mémoire: ${process.memoryUsage().heapUsed / 1024 / 1024} MB`)
 }
 
 bootstrap()

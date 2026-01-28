@@ -3,6 +3,25 @@
   "collection": "@nestjs/schematics",
   "sourceRoot": "src",
   "compilerOptions": {
-    "deleteOutDir": true
+    "deleteOutDir": true,
+    "webpack": false,
+    "tsConfigPath": "tsconfig.build.json",
+    "assets": [
+      "**/*.env",
+      "**/*.json"
+    ],
+    "watchAssets": false,
+    "plugins": [
+      {
+        "name": "@nestjs/swagger/plugin",
+        "options": {
+          "classValidatorShim": true,
+          "introspectComments": true
+        }
+      }
+    ]
+  },
+  "generateOptions": {
+    "spec": false
   }
 }

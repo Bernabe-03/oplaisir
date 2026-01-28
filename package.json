@@ -6,12 +6,13 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "nest build",
+    "build": "NODE_OPTIONS='--max-old-space-size=512' nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "NODE_OPTIONS='--max-old-space-size=512' node dist/main",
+    "start:prod:lite": "NODE_OPTIONS='--max-old-space-size=256 --optimize-for-size' node dist/main",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
     "prisma:seed": "ts-node prisma/seed.ts",
@@ -23,11 +24,15 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "postbuild": "prisma generate",
-    "render:build": "npm ci && npm run prisma:generate && npm run build && npm run prisma:migrate",
+    "render:build": "npm ci && npm run prisma:generate && NODE_OPTIONS='--max-old-space-size=512' npm run build && npm run prisma:migrate",
     "health": "node -e \"const http = require('http'); const options = {hostname: 'localhost', port: process.env.PORT || 3000, path: '/api/health', method: 'GET', timeout: 3000}; const req = http.request(options, (res) => { console.log(`STATUS: ${res.statusCode}`); process.exit(res.statusCode === 200 ? 0 : 1); }); req.on('error', (err) => { console.error(err); process.exit(1); }); req.on('timeout', () => { console.error('Timeout'); process.exit(1); }); req.end();\""
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -44,6 +49,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.3",
     "cloudinary": "^2.9.0",
+    "compression": "^1.8.1",
     "cors": "^2.8.5",
     "csv-writer": "^1.6.0",
     "helmet": "^8.1.0",
