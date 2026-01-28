@@ -1,0 +1,315 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProductStatus {
+  ACTIF
+  INACTIF
+  EPUISE
+  EXPIRE
+  PROMO
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  VENDEUR
+  STOCKISTE
+  CLIENT
+}
+
+enum ItemType {
+  PRODUCT
+  COFFRET
+  SUPPORT
+}
+
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  password  String
+  name      String
+  role      UserRole  @default(CLIENT)
+  phone     String?
+  address   String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  lastLogin DateTime?
+  isActive  Boolean   @default(true)
+
+  // Relations
+  sales    Sale[]
+  products Product[]
+  coffrets Coffret[]
+  supports Support[]
+  reviews  Review[]
+  
+  @@map("users")
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  sku         String   @unique
+  barcode     String?
+  name        String
+  description String?
+  category    String
+  subCategory String?
+  brand       String?
+  supplier    String?
+
+  // Prix
+  purchasePrice Float  @default(0)
+  sellingPrice  Float  @default(0)
+  tva           Float  @default(18)
+  unit          String @default("pièce")
+
+  // Poids du produit
+  weight     Float?  @default(0)
+  weightUnit String? @default("g")
+
+  // Stock
+  stock    Int @default(0)
+  minStock Int @default(10)
+  maxStock Int @default(100)
+
+  // Images
+  images String[]
+
+  // Nouveaux champs de date et gestion des lots
+  expirationDate      DateTime?
+  manufacturingDate   DateTime?
+  shelfLifeMonths     Int?       @default(0)
+  batchNumber         String?
+  storageConditions   String?    @default("température ambiante")
+  
+  // Dates système
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  
+  // Statut
+  status             ProductStatus @default(ACTIF)
+
+  // Relations
+  coffretItems       CoffretItem[]
+  sales              SaleItem[]
+  reviews            Review[]
+
+  // Créateur
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("products")
+}
+
+model Coffret {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  price       Float   @default(0)
+  type        String  @default("moyen")
+  theme       String  @default("gourmand")
+  
+  // Support associé
+  supportId   String?
+  support     Support? @relation(fields: [supportId], references: [id], onDelete: SetNull)
+
+  // Informations financières
+  cost        Float?   @default(0)
+  margin      Float?   @default(30)
+
+  // Gestion de stock
+  stock       Int     @default(0)
+  minStock    Int     @default(5)
+  maxStock    Int     @default(50)
+
+  // Référencement
+  sku         String? @unique
+
+  // Images
+  images      String[] @default([])
+
+  // Règles et configuration
+  rules       Json?
+
+  // Statut
+  status      String  @default("ACTIF")
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  items       CoffretItem[]
+  sales       SaleItem[]
+  userId      String?
+  user        User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("coffrets")
+}
+
+model Support {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  sku         String   @unique
+
+  type        String   @default("boite")
+  theme       String   @default("anniversaire")
+  material    String   @default("carton")
+
+  color       String?
+  dimensions  String?
+
+  compatibleThemes Json?
+
+  capacity    Int     @default(1)
+  weight      Float?  @default(0)
+  weightUnit  String? @default("g")
+
+  purchasePrice Float @default(0)
+  sellingPrice  Float @default(0)
+  tva           Float @default(18)
+
+  stock    Int @default(0)
+  minStock Int @default(5)
+  maxStock Int @default(100)
+
+  images   String[] @default([])
+
+  status   String @default("actif")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sales   SaleItem[]
+  coffrets Coffret[] 
+  userId  String?
+  user    User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("supports")
+}
+
+model CoffretItem {
+  id         String  @id @default(cuid())
+  quantity   Int     @default(1)
+  canReplace Boolean @default(true)
+
+  // Relations
+  coffretId String
+  coffret   Coffret @relation(fields: [coffretId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([coffretId, productId])
+  @@map("coffret_items")
+}
+
+model Sale {
+  id            String   @id @default(cuid())
+  transactionId String   @unique
+  date          DateTime @default(now())
+
+  // Informations client
+  customerName    String?
+  customerEmail   String?
+  customerPhone   String?
+  customerAddress String?
+
+  // Totaux
+  subtotal     Float  @default(0)
+  discount     Float  @default(0)
+  discountType String @default("fixed")
+  tva          Float  @default(0)
+  total        Float  @default(0)
+
+  // Paiement
+  paymentMethod  String @default("ESPECES")
+  paymentDetails Json?
+
+  // Statut
+  status String  @default("COMPLETED")
+  notes  String?
+
+  // Relations
+  sellerId String?
+  seller   User?      @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+  items    SaleItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sales")
+}
+
+model SaleItem {
+  id        String @id @default(cuid())
+  type      String // 'PRODUCT', 'COFFRET', 'SUPPORT'
+  quantity  Int    @default(1)
+  unitPrice Float  @default(0)
+
+  // Relations
+  saleId String
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  coffretId String?
+  coffret   Coffret? @relation(fields: [coffretId], references: [id], onDelete: SetNull)
+
+  supportId String?
+  support   Support? @relation(fields: [supportId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sale_items")
+}
+
+model Review {
+  id          String   @id @default(cuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  rating      Int      @default(5)
+  title       String?
+  comment     String
+  
+  customerName  String
+  customerEmail String?
+  customerPhone String?
+  
+  status      ReviewStatus @default(PENDING)
+  images      String[]
+  
+  isVerifiedPurchase Boolean @default(false)
+  helpfulCount       Int     @default(0)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  publishedAt DateTime?
+  
+  @@index([productId, status])
+  @@index([productId, rating])
+  @@index([createdAt])
+  @@map("reviews")
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  HIDDEN
+}
