@@ -1,15 +1,21 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["node_modules", "test", "dist", "**/*spec.ts"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test",
+    "**/*spec.ts",
+    "**/*.e2e-spec.ts"
+  ],
   "compilerOptions": {
-    "incremental": true,
+    "incremental": false,
     "sourceMap": false,
     "declaration": false,
+    "declarationMap": false,
     "removeComments": true,
     "noEmitOnError": true,
     "skipLibCheck": true,
     "inlineSources": false,
-    "declarationMap": false,
     "stripInternal": true
   }
 }
