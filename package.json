@@ -5,22 +5,16 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "NODE_OPTIONS=--max-old-space-size=512 nest build",
-
     "start": "node --max-old-space-size=512 dist/main.js",
     "start:prod": "node --max-old-space-size=512 dist/main.js",
     "start:prod:lite": "node --max-old-space-size=256 --optimize-for-size dist/main.js",
-
     "start:dev": "nest start --watch",
-
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
-
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-
     "postbuild": "prisma generate",
-
     "render:build": "npm ci && npm run prisma:generate && npm run build && npm run prisma:migrate"
   },
   "engines": {
@@ -43,10 +37,12 @@
     "cloudinary": "^2.9.0",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
+    "csv-writer": "^1.6.0",
     "helmet": "^8.1.0",
     "multer": "^2.0.2",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
+    "pdfkit": "^0.17.2",
     "prisma": "^6.19.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
@@ -56,6 +52,10 @@
     "@nestjs/cli": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
     "@types/node": "^22.10.7",
+    "@types/multer": "^1.4.11",
+    "@types/passport-jwt": "^4.0.1",
+    "@types/bcrypt": "^6.0.0",
+    "@types/pdfkit": "^0.17.4",
     "typescript": "^5.7.3",
     "ts-node": "^10.9.2",
     "eslint": "^9.18.0",
