@@ -5,7 +5,8 @@ import { UpdateSupportDto } from './dto/update-support.dto';
 import { SupportResponseDto } from './dto/support-response.dto';
 import { CloudinaryService } from '../shared/cloudinary/cloudinary.service';
 import { SupportStatus, SupportTheme, SupportType } from './dto/create-support.dto';
-
+import { Express } from 'express';
+import { Multer } from 'multer';
 @Injectable()
 export class SupportsService {
   constructor(

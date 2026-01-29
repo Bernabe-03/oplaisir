@@ -263,8 +263,8 @@ import {
         
         doc.pipe(res);
         
-        // En-tête
-        doc.fontSize(16).text(coffret.name, { align: 'center' });
+        // En-tête - CORRECTION ICI
+        doc.fontSize(16).text(coffret.name, 0, doc.y, { align: 'center' as any });
         doc.moveDown(0.5);
         
         // Informations
@@ -290,10 +290,10 @@ import {
           });
         }
         
-        // Code-barre factice
+        // Code-barre factice - CORRECTION ICI
         doc.moveDown(2);
         doc.fontSize(8)
-          .text(`CODE: ${coffret.sku || coffret.id}`, { align: 'center' });
+          .text(`CODE: ${coffret.sku || coffret.id}`, 0, doc.y, { align: 'center' as any });
         
         doc.end();
       } else {
