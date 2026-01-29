@@ -4,7 +4,7 @@
   "private": true,
   "license": "UNLICENSED",
  "scripts": {
-  "build": "NODE_OPTIONS=--max-old-space-size=512 npx nest build",
+  "build": "NODE_OPTIONS=--max-old-space-size=512 npx --no-install nest build",
   "start": "node --max-old-space-size=512 dist/main.js",
   "start:prod": "NODE_OPTIONS=--max-old-space-size=512 NODE_ENV=production node dist/main.js",
   "start:prod:lite": "node --max-old-space-size=256 --optimize-for-size dist/main.js",
