@@ -31,7 +31,9 @@ import {
   import { RolesGuard } from '../auth/guards/roles.guard';
   import { Roles } from '../auth/decorators/roles.decorator';
   import { UserRole } from '@prisma/client';
-  
+  import { Express } from 'express';
+
+
   @ApiTags('coffrets')
   @ApiBearerAuth()
   @Controller('coffrets')
@@ -195,7 +197,7 @@ import {
     @UseInterceptors(FileInterceptor('image'))
     uploadImage(
       @Param('id') id: string,
-      @UploadedFile() image: Multer.File,
+      @UploadedFile() image: Express.Multer.File,
     ) {
       return this.coffretsService.uploadImage(id, image);
     }

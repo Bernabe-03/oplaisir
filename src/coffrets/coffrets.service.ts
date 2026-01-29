@@ -4,6 +4,7 @@ import { CreateCoffretDto } from './dto/create-coffret.dto';
 import { UpdateCoffretDto } from './dto/update-coffret.dto';
 import { CloudinaryService } from '../shared/cloudinary/cloudinary.service';
 import { CoffretProductDto } from './dto/create-coffret.dto';
+import { Express } from 'express';
 
 @Injectable()
 export class CoffretsService {
@@ -503,7 +504,7 @@ export class CoffretsService {
     })).filter(item => item.coffret);
   }
 
-  async uploadImage(id: string, imageFile: Multer.File) {
+  async uploadImage(id: string, imageFile: Express.Multer.File) {
     const coffret = await this.prisma.coffret.findUnique({
       where: { id },
     });

@@ -19,7 +19,9 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { memoryStorage, Multer  } from 'multer';
+import { memoryStorage } from 'multer';
+import { Express } from 'express';
+
 import { CloudinaryService } from '../shared/cloudinary/cloudinary.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -31,7 +33,7 @@ const memoryStorageConfig = {
   storage: memoryStorage(),
   fileFilter: (
     req: Request,
-    file: Multer.File,
+    file: Express.Multer.File,
     callback: (error: Error | null, acceptFile: boolean) => void,
   ) => {
     const allowedTypes = /jpeg|jpg|png|webp|gif/;
@@ -70,7 +72,7 @@ export class ProductsController {
   async create(
     @Body() createProductDto: CreateProductDto,
     @Request() req,
-    @UploadedFiles() files: Multer.File[],
+    @UploadedFiles() files: Express.Multer.File[],
   ) {
     console.log('=== 🚀 DÉBUT CRÉATION PRODUIT (Controller) ===');
     console.log('📦 Données reçues dans le controller:', createProductDto);
@@ -205,7 +207,7 @@ export class ProductsController {
     @Param('id') id: string,
     @Body() updateProductDto: UpdateProductDto,
     @Request() req,
-    @UploadedFiles() files: Multer.File[],
+    @UploadedFiles() files: Express.Multer.File[],
   ) {
     console.log('=== 🔄 DÉBUT MISE À JOUR PRODUIT (Controller) ===');
     console.log('📦 Données reçues pour mise à jour:', updateProductDto);
