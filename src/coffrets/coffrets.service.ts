@@ -503,7 +503,7 @@ export class CoffretsService {
     })).filter(item => item.coffret);
   }
 
-  async uploadImage(id: string, imageFile: Express.Multer.File) {
+  async uploadImage(id: string, imageFile: Multer.File) {
     const coffret = await this.prisma.coffret.findUnique({
       where: { id },
     });

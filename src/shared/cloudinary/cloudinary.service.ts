@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { v2 as cloudinary, UploadApiResponse, UploadApiErrorResponse } from 'cloudinary';
 import { Readable } from 'stream';
+import { Multer } from 'multer'; // <-- important
 
 @Injectable()
 export class CloudinaryService {
@@ -13,7 +14,7 @@ export class CloudinaryService {
     });
   }
 
-  async uploadImage(file: Express.Multer.File): Promise<UploadApiResponse> {
+  async uploadImage(file: Multer.File): Promise<UploadApiResponse> {
     return new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
         {
@@ -38,7 +39,7 @@ export class CloudinaryService {
     });
   }
 
-  async uploadMultipleImages(files: Express.Multer.File[]): Promise<string[]> {
+  async uploadMultipleImages(files: Multer.File[]): Promise<string[]> {
     const uploadPromises = files.map(file => this.uploadImage(file));
     const results = await Promise.all(uploadPromises);
     return results.map(result => result.secure_url);
@@ -58,10 +59,10 @@ export class CloudinaryService {
       const urlParts = url.split('/');
       const uploadIndex = urlParts.indexOf('upload');
       if (uploadIndex === -1) return null;
-  
+
       const publicIdParts = urlParts.slice(uploadIndex + 2);
       const publicIdWithExtension = publicIdParts.join('/');
-  
+
       const publicId = publicIdWithExtension.replace(/\.[^/.]+$/, '');
       return publicId;
     } catch (error) {
@@ -73,7 +74,7 @@ export class CloudinaryService {
   extractPublicIdsFromUrls(urls: string[]): string[] {
     return urls
       .map(url => this.extractPublicIdFromUrl(url))
-      .filter(publicId => publicId !== null);
+      .filter(publicId => publicId !== null) as string[];
   }
 
   async optimizeImage(url: string, options?: any): Promise<string> {

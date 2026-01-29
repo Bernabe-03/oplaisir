@@ -20,7 +20,7 @@ import { SupportsService } from './supports.service';
 import { CreateSupportDto, SupportTheme, SupportType, SupportStatus } from './dto/create-support.dto';
 import { UpdateSupportDto } from './dto/update-support.dto';
 import { SupportResponseDto } from './dto/support-response.dto';
-import { memoryStorage } from 'multer';
+import { memoryStorage, Multer } from 'multer';
 import { CloudinaryService } from '../shared/cloudinary/cloudinary.service';
 import { JwtAuthGuard } from '../auth/guards/jwt.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -31,7 +31,7 @@ const memoryStorageConfig = {
   storage: memoryStorage(),
   fileFilter: (
     req: Request,
-    file: Express.Multer.File,
+    file: Multer.File,
     callback: (error: Error | null, acceptFile: boolean) => void,
   ) => {
     const allowedTypes = /jpeg|jpg|png|webp|gif/;
@@ -72,7 +72,7 @@ export class SupportsController {
   async create(
     @Body() createSupportDto: CreateSupportDto,
     @Request() req,
-    @UploadedFiles() files: Express.Multer.File[],
+    @UploadedFiles() files: Multer.File[],
   ) {
     this.logger.log('=== 🚀 DÉBUT CRÉATION SUPPORT ===');
     this.logger.log('📦 Données reçues:', createSupportDto);
@@ -214,7 +214,7 @@ export class SupportsController {
   async update(
     @Param('id') id: string,
     @Body() updateSupportDto: UpdateSupportDto,
-    @UploadedFiles() files: Express.Multer.File[],
+    @UploadedFiles() files: Multer.File[],
   ) {
     this.logger.log(`=== 🔄 MISE À JOUR SUPPORT ${id} ===`);
     this.logger.log('📦 Données reçues:', updateSupportDto);
@@ -294,7 +294,7 @@ export class SupportsController {
   @UseInterceptors(FilesInterceptor('image', 1, memoryStorageConfig))
   async uploadImage(
     @Param('id') id: string,
-    @UploadedFiles() files: Express.Multer.File[],
+    @UploadedFiles() files: Multer.File[],
   ) {
     if (!files || files.length === 0) {
       throw new BadRequestException('Aucune image fournie');

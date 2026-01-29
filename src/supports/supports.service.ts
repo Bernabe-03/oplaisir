@@ -336,7 +336,7 @@ export class SupportsService {
     });
   }
 
-  async uploadImage(id: string, file: Express.Multer.File): Promise<SupportResponseDto> {
+  async uploadImage(id: string, file: Multer.File): Promise<SupportResponseDto> {
     const support = await this.prisma.support.findUnique({
       where: { id },
     });

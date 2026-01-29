@@ -1,8 +1,7 @@
-import { diskStorage } from 'multer';
+import { diskStorage, FileFilterCallback, Multer } from 'multer';
 import { extname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { Request } from 'express';
-import { FileFilterCallback } from 'multer';
 import { BadRequestException } from '@nestjs/common';
 
 export const multerConfig = {
@@ -10,7 +9,7 @@ export const multerConfig = {
     destination: './uploads/products',
     filename: (
       req: Request,
-      file: Express.Multer.File,
+      file: Multer.File, // <-- corrigé ici
       callback: (error: Error | null, filename: string) => void,
     ) => {
       const uniqueName = `${uuidv4()}${extname(file.originalname)}`;
@@ -19,7 +18,7 @@ export const multerConfig = {
   }),
   fileFilter: (
     req: Request,
-    file: Express.Multer.File,
+    file: Multer.File, // <-- et ici
     callback: FileFilterCallback,
   ) => {
     const allowedTypes = /jpeg|jpg|png|webp|gif/;

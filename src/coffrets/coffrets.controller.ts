@@ -195,7 +195,7 @@ import {
     @UseInterceptors(FileInterceptor('image'))
     uploadImage(
       @Param('id') id: string,
-      @UploadedFile() image: Express.Multer.File,
+      @UploadedFile() image: Multer.File,
     ) {
       return this.coffretsService.uploadImage(id, image);
     }
