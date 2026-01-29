@@ -254,32 +254,32 @@ import {
       
       if (format === 'pdf') {
         const doc = new PDFDocument({ size: 'A6', margin: 20 });
-        
+      
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader(
           'Content-Disposition',
           `attachment; filename="etiquette-coffret-${coffret.sku || coffret.id}.pdf"`
         );
-        
+      
         doc.pipe(res);
-        
-        // En-tête - CORRECTION ICI
-        doc.fontSize(16).text(coffret.name, 0, doc.y, { align: 'center' as any });
+      
+        // En-tête
+        doc.fontSize(16).text(coffret.name, { align: 'center' });
         doc.moveDown(0.5);
-        
+      
         // Informations
         doc.fontSize(10).text(`SKU: ${coffret.sku || 'N/A'}`);
         doc.text(`Thème: ${coffret.theme}`);
         doc.text(`Type: ${coffret.type}`);
         doc.text(`Prix: ${coffret.price.toFixed(2)} €`);
         doc.text(`Stock: ${coffret.stock}`);
-        
+      
         if (coffret.support) {
           doc.moveDown(0.5);
           doc.fontSize(12).text('Support:');
           doc.fontSize(10).text(coffret.support.name);
         }
-        
+      
         // Produits inclus
         if (coffret.items && coffret.items.length > 0) {
           doc.moveDown(1);
@@ -289,16 +289,16 @@ import {
               .text(`${index + 1}. ${item.product.name} x${item.quantity}`);
           });
         }
-        
-        // Code-barre factice - CORRECTION ICI
+      
+        // Code-barre factice
         doc.moveDown(2);
-        doc.fontSize(8)
-          .text(`CODE: ${coffret.sku || coffret.id}`, 0, doc.y, { align: 'center' as any });
-        
+        doc.fontSize(8).text(`CODE: ${coffret.sku || coffret.id}`, { align: 'center' });
+      
         doc.end();
       } else {
         throw new BadRequestException('Format non supporté. Utilisez "pdf".');
       }
+      
     }
   
     @Get('export/csv')
