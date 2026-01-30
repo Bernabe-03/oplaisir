@@ -1,63 +1,22 @@
-// import { NestFactory } from '@nestjs/core'
-// import { AppModule } from './app.module'
-// import { ValidationPipe } from '@nestjs/common'
-
-// async function bootstrap() {
-//   const app = await NestFactory.create(AppModule)
-
-//   app.enableCors({
-//     origin: ['http://localhost:5173', 'http://localhost:3000'],
-//     credentials: true,
-//     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-//     allowedHeaders: [
-//       'Content-Type',
-//       'Authorization',
-//       'X-Refresh-Token',
-//       'Accept',
-//       'Origin',
-//       'X-Requested-With'
-//     ],
-//     exposedHeaders: ['Authorization']
-//   })
-
-//   app.setGlobalPrefix('api')
-
-//   app.useGlobalPipes(
-//     new ValidationPipe({
-//       whitelist: true,
-//       transform: true,
-//       forbidNonWhitelisted: false
-//     })
-//   )
-
-//   const port = process.env.PORT || 3000
-//   await app.listen(port)
-
-//   console.log(`🚀 Serveur démarré sur http://localhost:${port}`)
-//   console.log(`🌐 CORS configuré pour: http://localhost:5173`)
-// }
-
-// bootstrap()
-
-
-
-
 
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import compression from 'compression'; // ✅ correction
 import helmet from 'helmet';
-
+import { json, urlencoded } from 'express';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-    logger: ['error', 'warn', 'log'], // logs légers pour Render
+    logger: ['error', 'warn', 'log'],
     bufferLogs: true,
   });
 
   /* ------------------ Sécurité & perf ------------------ */
+  app.use(json({ limit: '10mb' }));
+  app.use(urlencoded({ limit: '10mb', extended: true }));
+
   app.use(helmet());
-  app.use(compression()); // ✅ fonctionne maintenant
+  app.use(compression()); 
 
   /* ------------------ CORS ------------------ */
   const allowedOrigins = [
