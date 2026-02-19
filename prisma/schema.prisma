@@ -43,18 +43,23 @@ model User {
   isActive  Boolean   @default(true)
 
   // Relations
-  sales    Sale[]
-  products Product[]
-  coffrets Coffret[]
-  supports Support[]
-  reviews  Review[]
-  
+  sales         Sale[]
+  products      Product[]
+  coffrets      Coffret[]
+  supports      Support[]
+  reviews       Review[]
+  notifications Notification[]
+
+  orders       Order[]
+  orderHistory OrderHistory[]
+  pendingCarts PendingCart[]
+
   @@map("users")
 }
 
 model Product {
-  id          String   @id @default(cuid())
-  sku         String   @unique
+  id          String  @id @default(cuid())
+  sku         String  @unique
   barcode     String?
   name        String
   description String?
@@ -82,27 +87,28 @@ model Product {
   images String[]
 
   // Nouveaux champs de date et gestion des lots
-  expirationDate      DateTime?
-  manufacturingDate   DateTime?
-  shelfLifeMonths     Int?       @default(0)
-  batchNumber         String?
-  storageConditions   String?    @default("température ambiante")
-  
+  expirationDate    DateTime?
+  manufacturingDate DateTime?
+  shelfLifeMonths   Int?      @default(0)
+  batchNumber       String?
+  storageConditions String?   @default("température ambiante")
+
   // Dates système
-  createdAt          DateTime   @default(now())
-  updatedAt          DateTime   @updatedAt
-  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Statut
-  status             ProductStatus @default(ACTIF)
+  status ProductStatus @default(ACTIF)
 
   // Relations
-  coffretItems       CoffretItem[]
-  sales              SaleItem[]
-  reviews            Review[]
+  coffretItems CoffretItem[]
+  sales        SaleItem[]
+  reviews      Review[]
 
+  orderItems OrderItem[]
   // Créateur
-  userId String?
-  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId     String?
+  user       User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@map("products")
 }
@@ -114,62 +120,64 @@ model Coffret {
   price       Float   @default(0)
   type        String  @default("moyen")
   theme       String  @default("gourmand")
-  
+
   // Support associé
-  supportId   String?
-  support     Support? @relation(fields: [supportId], references: [id], onDelete: SetNull)
+  supportId String?
+  support   Support? @relation(fields: [supportId], references: [id], onDelete: SetNull)
 
   // Informations financières
-  cost        Float?   @default(0)
-  margin      Float?   @default(30)
+  cost   Float? @default(0)
+  margin Float? @default(30)
 
   // Gestion de stock
-  stock       Int     @default(0)
-  minStock    Int     @default(5)
-  maxStock    Int     @default(50)
+  stock    Int @default(0)
+  minStock Int @default(5)
+  maxStock Int @default(50)
 
   // Référencement
-  sku         String? @unique
+  sku String? @unique
 
   // Images
-  images      String[] @default([])
+  images String[] @default([])
 
   // Règles et configuration
-  rules       Json?
+  rules Json?
 
   // Statut
-  status      String  @default("ACTIF")
+  status String @default("ACTIF")
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  items       CoffretItem[]
-  sales       SaleItem[]
-  userId      String?
-  user        User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items      CoffretItem[]
+  sales      SaleItem[]
+  orderItems OrderItem[]
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@map("coffrets")
 }
 
 model Support {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   name        String
   description String?
-  sku         String   @unique
+  sku         String  @unique
 
-  type        String   @default("boite")
-  theme       String   @default("anniversaire")
-  material    String   @default("carton")
+  type     String @default("boite")
+  theme    String @default("anniversaire")
+  material String @default("carton")
 
-  color       String?
-  dimensions  String?
+  color      String?
+  dimensions String?
 
   compatibleThemes Json?
 
-  capacity    Int     @default(1)
-  weight      Float?  @default(0)
-  weightUnit  String? @default("g")
+  capacity   Int     @default(1)
+  weight     Float?  @default(0)
+  weightUnit String? @default("g")
 
   purchasePrice Float @default(0)
   sellingPrice  Float @default(0)
@@ -179,17 +187,19 @@ model Support {
   minStock Int @default(5)
   maxStock Int @default(100)
 
-  images   String[] @default([])
+  images String[] @default([])
 
-  status   String @default("actif")
+  status String @default("actif")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sales   SaleItem[]
-  coffrets Coffret[] 
-  userId  String?
-  user    User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sales      SaleItem[]
+  coffrets   Coffret[]
+  orderItems OrderItem[]
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@map("supports")
 }
@@ -276,31 +286,31 @@ model SaleItem {
 }
 
 model Review {
-  id          String   @id @default(cuid())
-  productId   String
-  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  
-  userId      String?
-  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  
-  rating      Int      @default(5)
-  title       String?
-  comment     String
-  
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  rating  Int     @default(5)
+  title   String?
+  comment String
+
   customerName  String
   customerEmail String?
   customerPhone String?
-  
-  status      ReviewStatus @default(PENDING)
-  images      String[]
-  
+
+  status ReviewStatus @default(PENDING)
+  images String[]
+
   isVerifiedPurchase Boolean @default(false)
   helpfulCount       Int     @default(0)
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   publishedAt DateTime?
-  
+
   @@index([productId, status])
   @@index([productId, rating])
   @@index([createdAt])
@@ -313,3 +323,188 @@ enum ReviewStatus {
   REJECTED
   HIDDEN
 }
+
+enum OrderStatus {
+  PENDING
+  VALIDATED
+  REJECTED
+  COMPLETED
+  CANCELLED
+  DELIVERED
+}
+
+enum PaymentMethod {
+  CASH
+  MOBILE_MONEY
+  CREDIT_CARD
+  BANK_TRANSFER
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  PARTIALLY_PAID
+  FAILED
+  REFUNDED
+}
+
+model Order {
+  id            String  @id @default(cuid())
+  orderNumber   String  @unique
+  transactionId String?
+
+  // Informations client
+  customerName    String
+  customerPhone   String
+  customerEmail   String?
+  customerAddress String
+  customerCommune String
+  deliveryNotes   String?
+
+  // Prix et remises
+  subtotal       Float   @default(0)
+  discountAmount Float   @default(0)
+  discountType   String  @default("fixed")
+  discountCode   String?
+  discountLabel  String?
+  deliveryCost   Float   @default(0)
+  tva            Float   @default(18)
+  total          Float   @default(0)
+
+  // Statuts
+  status        OrderStatus   @default(PENDING)
+  paymentMethod PaymentMethod @default(CASH)
+  paymentStatus PaymentStatus @default(PENDING)
+
+  // Validation manuelle
+  requiresValidation Boolean   @default(true)
+  validatedBy        String?
+  validatedAt        DateTime?
+  rejectionReason    String?
+
+  // Dates
+  orderDate         DateTime  @default(now())
+  deliveryDate      DateTime?
+  estimatedDelivery DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  items   OrderItem[]
+  userId  String?
+  user    User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  history OrderHistory[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // Type d'article
+  type String // 'product', 'coffret', 'support'
+
+  // Référence à l'article
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  coffretId String?
+  coffret   Coffret? @relation(fields: [coffretId], references: [id], onDelete: SetNull)
+
+  supportId String?
+  support   Support? @relation(fields: [supportId], references: [id], onDelete: SetNull)
+
+  // Informations de l'article
+  name        String
+  sku         String?
+  description String?
+
+  // Quantité et prix
+  quantity   Int   @default(1)
+  unitPrice  Float @default(0)
+  totalPrice Float @default(0)
+
+  // Images
+  images String[]
+
+  // Métadonnées
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("order_items")
+}
+
+model OrderHistory {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  status      OrderStatus
+  action      String // 'created', 'validated', 'rejected', 'paid', 'shipped', 'delivered'
+  description String?
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@map("order_history")
+}
+
+model PendingCart {
+  id        String  @id @default(cuid())
+  sessionId String  @unique
+  userId    String?
+  user      User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Contenu du panier
+  products Json @default("[]")
+  coffrets Json @default("[]")
+  supports Json @default("[]")
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("pending_carts")
+}
+
+model Notification {
+  id String @id @default(cuid())
+
+  // Type de notification
+  type    String @default("info") // 'order', 'alert', 'info', 'success', 'warning', 'error'
+  title   String
+  message String
+  data    Json? // Données supplémentaires
+
+  // Priorité
+  priority String @default("medium") // 'low', 'medium', 'high', 'urgent'
+
+  // Son de notification
+  sound String?
+
+  // Destinataire
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Lecture
+  read   Boolean   @default(false)
+  readAt DateTime?
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Index
+  @@index([userId, read])
+  @@index([createdAt])
+  @@index([type, priority])
+  @@map("notifications")
+}
+

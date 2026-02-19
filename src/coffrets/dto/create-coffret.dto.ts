@@ -70,7 +70,13 @@ import {
     @IsOptional()
     @IsString()
     supportId?: string;
-  
+
+    @ApiProperty({ type: [String], required: false })
+    @IsOptional()
+    @IsArray()
+    @IsString({ each: true })
+    images?: string[];
+    
     @ApiProperty({ type: [CoffretProductDto], required: false })
     @IsOptional()
     @IsArray()

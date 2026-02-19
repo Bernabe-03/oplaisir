@@ -1,10 +1,14 @@
-
+// main.ts - Version corrigée
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
-import compression from 'compression'; // ✅ correction
 import helmet from 'helmet';
 import { json, urlencoded } from 'express';
+import { IoAdapter } from '@nestjs/platform-socket.io';
+
+// Importation correcte pour compression
+import compression from 'compression';
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log'],
@@ -16,18 +20,19 @@ async function bootstrap() {
   app.use(urlencoded({ limit: '10mb', extended: true }));
 
   app.use(helmet());
-  app.use(compression()); 
+  app.use(compression()); // Maintenant ça devrait fonctionner
 
   /* ------------------ CORS ------------------ */
   const allowedOrigins = [
     'https://oplaisir-gules.vercel.app',
     'http://localhost:5173',
     'http://localhost:3000',
-  ];
+    process.env.FRONTEND_URL,
+  ].filter(Boolean);
 
   app.enableCors({
     origin: (origin, callback) => {
-      if (!origin) return callback(null, true); // mobile / curl
+      if (!origin) return callback(null, true);
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
@@ -39,6 +44,9 @@ async function bootstrap() {
     exposedHeaders: ['Authorization'],
     maxAge: 86400,
   });
+
+  /* ------------------ WebSocket Adapter ------------------ */
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   /* ------------------ Global config ------------------ */
   app.setGlobalPrefix('api');
@@ -54,15 +62,15 @@ async function bootstrap() {
     }),
   );
 
-  /* ------------------ Port (OBLIGATOIRE pour Render) ------------------ */
+  /* ------------------ Port ------------------ */
   const port = Number(process.env.PORT) || 3000;
   await app.listen(port, '0.0.0.0');
 
   console.log(`🚀 Backend lancé sur le port ${port}`);
+  console.log(`🔔 Notifications WebSocket actif sur ws://localhost:${port}/notifications`);
+  console.log(`📡 CORS autorisé pour: ${allowedOrigins.join(', ')}`);
   console.log(
-    `📊 Mémoire utilisée: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(
-      2,
-    )} MB`,
+    `📊 Mémoire utilisée: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`,
   );
 }
 
@@ -70,4 +78,3 @@ bootstrap().catch((err) => {
   console.error('❌ Erreur au démarrage', err);
   process.exit(1);
 });
-

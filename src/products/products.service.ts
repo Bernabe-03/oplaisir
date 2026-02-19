@@ -7,62 +7,60 @@ import { ProductStatus } from '@prisma/client';
 
 @Injectable()
 export class ProductsService {
-  constructor(
-    private prisma: PrismaService,
-  ) {}
+  constructor(private prisma: PrismaService) {}
 
+  // ------------------------------------------------------------
+  // CREATE
+  // ------------------------------------------------------------
   async create(createProductDto: CreateProductDto, userId: string, images: string[] = []) {
-    const productData = createProductDto;
-
-    // Vérifier que le SKU est unique
-    const existingProduct = await this.prisma.product.findUnique({
-      where: { sku: productData.sku },
+    // Vérifier l'unicité du SKU
+    const existing = await this.prisma.product.findUnique({
+      where: { sku: createProductDto.sku },
     });
-
-    if (existingProduct) {
+    if (existing) {
       throw new BadRequestException('Un produit avec ce SKU existe déjà');
     }
 
-    const statusMap = {
-      'actif': ProductStatus.ACTIF,
-      'inactif': ProductStatus.INACTIF,
-      'epuise': ProductStatus.EPUISE,
-      'rupture': ProductStatus.EPUISE,
-      'nouveau': ProductStatus.ACTIF,
-      'promo': ProductStatus.ACTIF,
-      'expire': ProductStatus.EXPIRE
+    // Mapping des statuts texte → enum
+    const statusMap: Record<string, ProductStatus> = {
+      actif: ProductStatus.ACTIF,
+      inactif: ProductStatus.INACTIF,
+      epuise: ProductStatus.EPUISE,
+      rupture: ProductStatus.EPUISE,
+      nouveau: ProductStatus.ACTIF,
+      promo: ProductStatus.ACTIF,
+      expire: ProductStatus.EXPIRE,
     };
-    
-    // Gérer automatiquement le statut si le produit est expiré
-    let status = statusMap[(productData.status ?? 'actif').toLowerCase()] || ProductStatus.ACTIF;
-    if (productData.expirationDate) {
-      const expiryDate = new Date(productData.expirationDate);
-      const today = new Date();
-      if (expiryDate < today) {
+
+    let status = statusMap[(createProductDto.status ?? 'actif').toLowerCase()] || ProductStatus.ACTIF;
+
+    // Statut automatique si la date d'expiration est dépassée
+    if (createProductDto.expirationDate) {
+      const expiry = new Date(createProductDto.expirationDate);
+      if (expiry < new Date()) {
         status = ProductStatus.EXPIRE;
       }
     }
-    
-    const productDataWithDefaults = {
-      ...productData,
-      weight: productData.weight ?? 0,
-      weightUnit: productData.weightUnit ?? 'g',
-      shelfLifeMonths: productData.shelfLifeMonths ?? 0,
-      batchNumber: productData.batchNumber ?? '',
-      storageConditions: productData.storageConditions ?? 'température ambiante',
-      images: images,
+
+    const productData = {
+      ...createProductDto,
+      weight: createProductDto.weight ?? 0,
+      weightUnit: createProductDto.weightUnit ?? 'g',
+      shelfLifeMonths: createProductDto.shelfLifeMonths ?? 0,
+      batchNumber: createProductDto.batchNumber ?? '',
+      storageConditions: createProductDto.storageConditions ?? 'température ambiante',
+      images,
       userId: userId || null,
-      status: status,
+      status,
     };
 
-    // Créer le produit
-    const createdProduct = await this.prisma.product.create({
-      data: productDataWithDefaults,
-    });
-
-    return this.formatProductResponse(createdProduct);
+    const created = await this.prisma.product.create({ data: productData });
+    return this.formatProductResponse(created);
   }
 
+  // ------------------------------------------------------------
+  // FIND ALL (avec pagination, recherche, filtre)
+  // ------------------------------------------------------------
   async findAll(
     page: number = 1,
     limit: number = 20,
@@ -103,7 +101,7 @@ export class ProductsService {
               id: true,
               name: true,
               email: true,
-            }
+            },
           },
         },
         orderBy: { createdAt: 'desc' },
@@ -114,19 +112,14 @@ export class ProductsService {
     // Récupérer les statistiques d'avis pour chaque produit
     const productsWithReviews = await Promise.all(
       products.map(async (product) => {
-        const formattedProduct = this.formatProductResponse(product);
-        
+        const formatted = this.formatProductResponse(product);
         try {
           const reviewStats = await this.calculateProductReviewStats(product.id);
-          return {
-            ...formattedProduct,
-            reviewStats,
-          };
-        } catch (error) {
-          // Si le service d'avis n'est pas disponible, retourner le produit sans statistiques
-          return formattedProduct;
+          return { ...formatted, reviewStats };
+        } catch {
+          return formatted;
         }
-      })
+      }),
     );
 
     return {
@@ -140,6 +133,9 @@ export class ProductsService {
     };
   }
 
+  // ------------------------------------------------------------
+  // FIND ONE
+  // ------------------------------------------------------------
   async findOne(id: string) {
     const product = await this.prisma.product.findUnique({
       where: { id },
@@ -149,7 +145,7 @@ export class ProductsService {
             id: true,
             name: true,
             email: true,
-          }
+          },
         },
       },
     });
@@ -158,21 +154,18 @@ export class ProductsService {
       throw new NotFoundException(`Produit avec l'ID ${id} non trouvé`);
     }
 
-    const formattedProduct = this.formatProductResponse(product);
-    
-    // Récupérer les statistiques d'avis
+    const formatted = this.formatProductResponse(product);
     try {
       const reviewStats = await this.calculateProductReviewStats(id);
-      return {
-        ...formattedProduct,
-        reviewStats,
-      };
-    } catch (error) {
-      // Si le service d'avis n'est pas disponible, retourner le produit sans statistiques
-      return formattedProduct;
+      return { ...formatted, reviewStats };
+    } catch {
+      return formatted;
     }
   }
 
+  // ------------------------------------------------------------
+  // FIND ONE WITH REVIEWS (détaillé)
+  // ------------------------------------------------------------
   async findOneWithReviews(id: string, query: any) {
     const product = await this.prisma.product.findUnique({
       where: { id },
@@ -182,7 +175,7 @@ export class ProductsService {
             id: true,
             name: true,
             email: true,
-          }
+          },
         },
       },
     });
@@ -191,21 +184,19 @@ export class ProductsService {
       throw new NotFoundException(`Produit avec l'ID ${id} non trouvé`);
     }
 
-    const formattedProduct = this.formatProductResponse(product);
-    
-    // Récupérer les avis détaillés et statistiques
+    const formatted = this.formatProductResponse(product);
     const reviews = await this.findProductReviews(id, query);
     const reviewStats = await this.calculateProductReviewStats(id);
-    
+
     return {
-      product: {
-        ...formattedProduct,
-        reviewStats,
-      },
+      product: { ...formatted, reviewStats },
       reviews,
     };
   }
 
+  // ------------------------------------------------------------
+  // FIND BY SKU
+  // ------------------------------------------------------------
   async findBySku(sku: string) {
     const product = await this.prisma.product.findUnique({
       where: { sku },
@@ -215,7 +206,7 @@ export class ProductsService {
             id: true,
             name: true,
             email: true,
-          }
+          },
         },
       },
     });
@@ -224,107 +215,113 @@ export class ProductsService {
       throw new NotFoundException(`Produit avec le SKU ${sku} non trouvé`);
     }
 
-    const formattedProduct = this.formatProductResponse(product);
-    
-    // Récupérer les statistiques d'avis
+    const formatted = this.formatProductResponse(product);
     try {
       const reviewStats = await this.calculateProductReviewStats(product.id);
-      return {
-        ...formattedProduct,
-        reviewStats,
-      };
-    } catch (error) {
-      return formattedProduct;
+      return { ...formatted, reviewStats };
+    } catch {
+      return formatted;
     }
   }
 
+  // ------------------------------------------------------------
+  // UPDATE – CORRIGÉ : mise à jour partielle stricte
+  // ------------------------------------------------------------
   async update(id: string, updateProductDto: UpdateProductDto, userId: string, images: string[] = []) {
-    // Vérifier que le produit existe
-    const existingProduct = await this.prisma.product.findUnique({
-      where: { id },
-    });
-
-    if (!existingProduct) {
+    const existing = await this.prisma.product.findUnique({ where: { id } });
+    if (!existing) {
       throw new NotFoundException(`Produit avec l'ID ${id} non trouvé`);
     }
 
-    const updateData = updateProductDto;
+    // Construction du payload de mise à jour – UNIQUEMENT les champs présents
+    const updatePayload: any = {};
 
-    // Gérer automatiquement le statut si le produit est expiré
-    let status = existingProduct.status;
-    if (updateData.expirationDate) {
-      const expiryDate = new Date(updateData.expirationDate);
-      const today = new Date();
-      if (expiryDate < today) {
-        status = ProductStatus.EXPIRE;
+    // Champs scalaires
+    const scalarFields = [
+      'sku', 'name', 'description', 'category', 'subCategory', 'brand', 'supplier',
+      'unit', 'barcode', 'batchNumber', 'storageConditions',
+    ];
+    scalarFields.forEach((field) => {
+      if (updateProductDto[field] !== undefined) {
+        updatePayload[field] = updateProductDto[field];
+      }
+    });
+
+    // Champs numériques
+    const numberFields = [
+      'purchasePrice', 'sellingPrice', 'tva', 'weight',
+      'stock', 'minStock', 'maxStock', 'shelfLifeMonths',
+    ];
+    numberFields.forEach((field) => {
+      if (updateProductDto[field] !== undefined) {
+        const val = updateProductDto[field];
+        updatePayload[field] = val === null ? null : Number(val);
+      }
+    });
+
+    // Champs de date
+    const dateFields = ['expirationDate', 'manufacturingDate'];
+    dateFields.forEach((field) => {
+      if (updateProductDto[field] !== undefined) {
+        const val = updateProductDto[field];
+        updatePayload[field] = val ? new Date(val) : null;
+      }
+    });
+
+    // Gestion automatique du statut "expiré" si une nouvelle date d'expiration est fournie
+    if (updateProductDto.expirationDate) {
+      const expiryDate = new Date(updateProductDto.expirationDate);
+      if (expiryDate < new Date()) {
+        updatePayload.status = ProductStatus.EXPIRE;
       }
     }
 
-    // Préparer les données de mise à jour
-    const updateDataWithDefaults = {
-      ...updateData,
-      images: images,
-      userId: userId || existingProduct.userId,
-      weight: updateData.weight ?? existingProduct.weight ?? 0,
-      weightUnit: updateData.weightUnit ?? existingProduct.weightUnit ?? 'g',
-      shelfLifeMonths: updateData.shelfLifeMonths ?? existingProduct.shelfLifeMonths ?? 0,
-      batchNumber: updateData.batchNumber ?? existingProduct.batchNumber ?? '',
-      storageConditions: updateData.storageConditions ?? existingProduct.storageConditions ?? 'température ambiante',
-      status: updateData.status ?? status,
-    };
+    // Images – UNIQUEMENT si fournies
+    if (images.length > 0) {
+      updatePayload.images = images;
+    }
 
-    // Mettre à jour le produit
-    const updatedProduct = await this.prisma.product.update({
+    // Mise à jour du userId (optionnel)
+    if (userId) {
+      updatePayload.userId = userId;
+    }
+
+    const updated = await this.prisma.product.update({
       where: { id },
-      data: updateDataWithDefaults,
+      data: updatePayload,
     });
 
-    const formattedProduct = this.formatProductResponse(updatedProduct);
-    
-    // Récupérer les statistiques d'avis mises à jour
-    try {
-      const reviewStats = await this.calculateProductReviewStats(id);
-      return {
-        ...formattedProduct,
-        reviewStats,
-      };
-    } catch (error) {
-      return formattedProduct;
-    }
+    return this.formatProductResponse(updated);
   }
 
+  // ------------------------------------------------------------
+  // DELETE
+  // ------------------------------------------------------------
   async remove(id: string) {
-    // Vérifier que le produit existe
-    const existingProduct = await this.prisma.product.findUnique({
-      where: { id },
-    });
-
-    if (!existingProduct) {
+    const existing = await this.prisma.product.findUnique({ where: { id } });
+    if (!existing) {
       throw new NotFoundException(`Produit avec l'ID ${id} non trouvé`);
     }
 
-    // Supprimer le produit
-    await this.prisma.product.delete({
-      where: { id },
-    });
-
+    await this.prisma.product.delete({ where: { id } });
     return { message: 'Produit supprimé avec succès' };
   }
 
+  // ------------------------------------------------------------
+  // BULK DELETE
+  // ------------------------------------------------------------
   async bulkDelete(ids: string[]) {
-    // Supprimer les produits
     await this.prisma.product.deleteMany({
       where: { id: { in: ids } },
     });
-
     return { message: `${ids.length} produit(s) supprimé(s) avec succès` };
   }
 
+  // ------------------------------------------------------------
+  // UPDATE STOCK (endpoint spécifique)
+  // ------------------------------------------------------------
   async updateStock(id: string, quantity: number) {
-    const product = await this.prisma.product.findUnique({
-      where: { id },
-    });
-
+    const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) {
       throw new NotFoundException(`Produit avec l'ID ${id} non trouvé`);
     }
@@ -334,125 +331,79 @@ export class ProductsService {
       throw new BadRequestException('Stock insuffisant');
     }
 
-    const updatedProduct = await this.prisma.product.update({
+    const updated = await this.prisma.product.update({
       where: { id },
       data: { stock: newStock },
     });
 
-    const formattedProduct = this.formatProductResponse(updatedProduct);
-    
-    // Récupérer les statistiques d'avis
-    try {
-      const reviewStats = await this.calculateProductReviewStats(id);
-      return {
-        ...formattedProduct,
-        reviewStats,
-      };
-    } catch (error) {
-      return formattedProduct;
-    }
+    return this.formatProductResponse(updated);
   }
 
-  // Nouvelle méthode pour récupérer les produits expirés
+  // ------------------------------------------------------------
+  // GESTION DES EXPIRATIONS
+  // ------------------------------------------------------------
   async getExpiredProducts() {
     const now = new Date();
-    
     const products = await this.prisma.product.findMany({
       where: {
-        expirationDate: {
-          lt: now,
-        },
-        status: {
-          not: ProductStatus.EXPIRE,
-        },
+        expirationDate: { lt: now },
+        status: { not: ProductStatus.EXPIRE },
       },
       include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          }
-        },
+        user: { select: { id: true, name: true, email: true } },
       },
     });
 
-    // Mettre à jour le statut des produits expirés
-    const expiredProducts = await Promise.all(
+    const expired = await Promise.all(
       products.map(async (product) => {
-        // Mettre à jour le statut en expiré
         await this.prisma.product.update({
           where: { id: product.id },
           data: { status: ProductStatus.EXPIRE },
         });
-
-        return this.formatProductResponse({
-          ...product,
-          status: ProductStatus.EXPIRE,
-        });
-      })
+        return this.formatProductResponse({ ...product, status: ProductStatus.EXPIRE });
+      }),
     );
 
-    return expiredProducts;
+    return expired;
   }
 
-  // Nouvelle méthode pour récupérer les produits expirant bientôt
   async getProductsExpiringSoon(days: number = 30) {
     const now = new Date();
-    const futureDate = new Date();
-    futureDate.setDate(now.getDate() + days);
+    const future = new Date();
+    future.setDate(now.getDate() + days);
 
     const products = await this.prisma.product.findMany({
       where: {
-        expirationDate: {
-          gte: now,
-          lte: futureDate,
-        },
+        expirationDate: { gte: now, lte: future },
         status: ProductStatus.ACTIF,
       },
       include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          }
-        },
+        user: { select: { id: true, name: true, email: true } },
       },
-      orderBy: {
-        expirationDate: 'asc',
-      },
+      orderBy: { expirationDate: 'asc' },
     });
 
     return Promise.all(
       products.map(async (product) => {
-        const formattedProduct = this.formatProductResponse(product);
-        
-        // Calculer les jours avant expiration
-        if (formattedProduct.expirationDate) {
-          const expiryDate = new Date(formattedProduct.expirationDate);
-          const timeDiff = expiryDate.getTime() - now.getTime();
-          const daysUntilExpiry = Math.ceil(timeDiff / (1000 * 3600 * 24));
-          
+        const formatted = this.formatProductResponse(product);
+        if (formatted.expirationDate) {
+          const diff = new Date(formatted.expirationDate).getTime() - now.getTime();
+          const daysUntil = Math.ceil(diff / (1000 * 3600 * 24));
           return {
-            ...formattedProduct,
-            daysUntilExpiry,
-            isExpiringSoon: daysUntilExpiry <= 7,
+            ...formatted,
+            daysUntilExpiry: daysUntil,
+            isExpiringSoon: daysUntil <= 7,
           };
         }
-        
-        return formattedProduct;
-      })
+        return formatted;
+      }),
     );
   }
 
-  // Nouvelle méthode pour les statistiques d'expiration
   async getExpiryStats() {
     const now = new Date();
-    const nextWeek = new Date();
-    nextWeek.setDate(now.getDate() + 7);
-    const nextMonth = new Date();
-    nextMonth.setDate(now.getDate() + 30);
+    const nextWeek = new Date(now.getTime() + 7 * 24 * 3600 * 1000);
+    const nextMonth = new Date(now.getTime() + 30 * 24 * 3600 * 1000);
 
     const [
       totalProducts,
@@ -464,41 +415,27 @@ export class ProductsService {
       this.prisma.product.count(),
       this.prisma.product.count({
         where: {
-          OR: [
-            { expirationDate: { lt: now } },
-            { status: ProductStatus.EXPIRE },
-          ],
+          OR: [{ expirationDate: { lt: now } }, { status: ProductStatus.EXPIRE }],
         },
       }),
       this.prisma.product.count({
         where: {
-          expirationDate: {
-            gte: now,
-            lte: nextWeek,
-          },
+          expirationDate: { gte: now, lte: nextWeek },
           status: ProductStatus.ACTIF,
         },
       }),
       this.prisma.product.count({
         where: {
-          expirationDate: {
-            gte: now,
-            lte: nextMonth,
-          },
+          expirationDate: { gte: now, lte: nextMonth },
           status: ProductStatus.ACTIF,
         },
       }),
       this.prisma.product.groupBy({
         by: ['category'],
         where: {
-          OR: [
-            { expirationDate: { lt: now } },
-            { status: ProductStatus.EXPIRE },
-          ],
+          OR: [{ expirationDate: { lt: now } }, { status: ProductStatus.EXPIRE }],
         },
-        _count: {
-          _all: true,
-        },
+        _count: { _all: true },
       }),
     ]);
 
@@ -507,7 +444,7 @@ export class ProductsService {
       expiredProducts,
       expiringThisWeek,
       expiringThisMonth,
-      expiredByCategory: expiredByCategory.map(cat => ({
+      expiredByCategory: expiredByCategory.map((cat) => ({
         category: cat.category,
         count: cat._count._all,
       })),
@@ -515,31 +452,20 @@ export class ProductsService {
     };
   }
 
-  // Nouvelle méthode pour mettre à jour le statut d'expiration
   async updateExpiryStatus(productIds: string[], status: ProductStatus) {
-    const updatedProducts = await this.prisma.product.updateMany({
-      where: {
-        id: {
-          in: productIds,
-        },
-      },
-      data: {
-        status,
-      },
+    const result = await this.prisma.product.updateMany({
+      where: { id: { in: productIds } },
+      data: { status },
     });
 
     return {
-      message: `${updatedProducts.count} produit(s) mis à jour`,
-      count: updatedProducts.count,
+      message: `${result.count} produit(s) mis à jour`,
+      count: result.count,
     };
   }
 
-  // Nouvelle méthode pour valider l'expiration d'un produit
   async validateProductExpiry(productId: string) {
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-    });
-
+    const product = await this.prisma.product.findUnique({ where: { id: productId } });
     if (!product) {
       throw new NotFoundException(`Produit avec l'ID ${productId} non trouvé`);
     }
@@ -548,12 +474,9 @@ export class ProductsService {
     let isExpired = false;
     let status = product.status;
 
-    // Vérifier si le produit est expiré
     if (product.expirationDate && product.expirationDate < now) {
       isExpired = true;
       status = ProductStatus.EXPIRE;
-      
-      // Mettre à jour le statut si nécessaire
       if (product.status !== ProductStatus.EXPIRE) {
         await this.prisma.product.update({
           where: { id: productId },
@@ -562,12 +485,10 @@ export class ProductsService {
       }
     }
 
-    // Calculer les jours avant expiration
-    let daysUntilExpiry: number | undefined = undefined;
+    let daysUntilExpiry: number | undefined;
     if (product.expirationDate) {
-      const expiryDate = new Date(product.expirationDate);
-      const timeDiff = expiryDate.getTime() - now.getTime();
-      daysUntilExpiry = Math.ceil(timeDiff / (1000 * 3600 * 24));
+      const diff = product.expirationDate.getTime() - now.getTime();
+      daysUntilExpiry = Math.ceil(diff / (1000 * 3600 * 24));
     }
 
     return {
@@ -577,90 +498,78 @@ export class ProductsService {
       status,
       expirationDate: product.expirationDate,
       currentStock: product.stock,
-      recommendation: isExpired ? 'Produit expiré - Ne pas vendre' : 
-                     (daysUntilExpiry && daysUntilExpiry <= 7 ? 'Produit expirant bientôt - Privilégier la vente' : 'Produit valide'),
+      recommendation: isExpired
+        ? 'Produit expiré - Ne pas vendre'
+        : daysUntilExpiry && daysUntilExpiry <= 7
+        ? 'Produit expirant bientôt - Privilégier la vente'
+        : 'Produit valide',
     };
   }
 
+  // ------------------------------------------------------------
+  // LOW STOCK
+  // ------------------------------------------------------------
   async getLowStock() {
     const products = await this.prisma.product.findMany({
       where: {
-        stock: {
-          lte: this.prisma.product.fields.minStock,
-        },
+        stock: { lte: this.prisma.product.fields.minStock },
         status: ProductStatus.ACTIF,
       },
       include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          }
-        },
+        user: { select: { id: true, name: true, email: true } },
       },
     });
 
-    // Récupérer les statistiques d'avis pour chaque produit
-    const productsWithReviews = await Promise.all(
+    return Promise.all(
       products.map(async (product) => {
-        const formattedProduct = this.formatProductResponse(product);
-        
+        const formatted = this.formatProductResponse(product);
         try {
           const reviewStats = await this.calculateProductReviewStats(product.id);
-          return {
-            ...formattedProduct,
-            reviewStats,
-          };
-        } catch (error) {
-          return formattedProduct;
+          return { ...formatted, reviewStats };
+        } catch {
+          return formatted;
         }
-      })
+      }),
     );
-
-    return productsWithReviews;
   }
 
+  // ------------------------------------------------------------
+  // CATEGORIES
+  // ------------------------------------------------------------
   async getCategories() {
     const categories = await this.prisma.product.groupBy({
       by: ['category'],
-      _count: {
-        _all: true,
-      },
-      orderBy: {
-        category: 'asc',
-      },
+      _count: { _all: true },
+      orderBy: { category: 'asc' },
     });
 
-    return categories.map(cat => ({
+    return categories.map((cat) => ({
       name: cat.category,
       count: cat._count._all,
     }));
   }
 
+  // ------------------------------------------------------------
+  // STATS GLOBALES
+  // ------------------------------------------------------------
   async getStats() {
     const totalProducts = await this.prisma.product.count();
     const totalInStock = await this.prisma.product.count({
       where: { stock: { gt: 0 } },
     });
-    
-    // Calculer la valeur totale du stock
+
     const products = await this.prisma.product.findMany({
-      select: {
-        stock: true,
-        purchasePrice: true,
-      },
+      select: { stock: true, purchasePrice: true },
     });
 
-    const totalValue = products.reduce((sum, product) => {
-      return sum + (product.stock * product.purchasePrice);
-    }, 0);
+    const totalValue = products.reduce(
+      (sum, p) => sum + p.stock * p.purchasePrice,
+      0,
+    );
 
     const lowStockCount = await this.prisma.product.count({
       where: {
-        stock: {
-          lte: this.prisma.product.fields.minStock,
-        },
+        stock: { lte: this.prisma.product.fields.minStock },
         status: ProductStatus.ACTIF,
       },
     });
@@ -673,17 +582,14 @@ export class ProductsService {
     };
   }
 
+  // ------------------------------------------------------------
+  // UTILITAIRES PRIVÉES
+  // ------------------------------------------------------------
   private async calculateProductReviewStats(productId: string) {
     try {
       const reviews = await this.prisma.review.findMany({
-        where: {
-          productId,
-          status: 'APPROVED',
-        },
-        select: {
-          rating: true,
-          isVerifiedPurchase: true,
-        },
+        where: { productId, status: 'APPROVED' },
+        select: { rating: true, isVerifiedPurchase: true },
       });
 
       if (reviews.length === 0) {
@@ -697,24 +603,21 @@ export class ProductsService {
       }
 
       const total = reviews.length;
-      const sum = reviews.reduce((acc, review) => acc + review.rating, 0);
-      const averageRating = parseFloat((sum / total).toFixed(1));
+      const sum = reviews.reduce((acc, r) => acc + r.rating, 0);
+      const average = parseFloat((sum / total).toFixed(1));
 
-      const ratingDistribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-      reviews.forEach(review => {
-        ratingDistribution[review.rating as keyof typeof ratingDistribution]++;
-      });
-
-      const verifiedPurchases = reviews.filter(r => r.isVerifiedPurchase).length;
+      const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+      reviews.forEach((r) => distribution[r.rating]++);
+      const verified = reviews.filter((r) => r.isVerifiedPurchase).length;
 
       return {
-        averageRating,
+        averageRating: average,
         totalReviews: total,
-        rating: Math.round(averageRating * 2) / 2,
-        ratingDistribution,
-        verifiedPurchases,
+        rating: Math.round(average * 2) / 2,
+        ratingDistribution: distribution,
+        verifiedPurchases: verified,
       };
-    } catch (error) {
+    } catch {
       return {
         averageRating: 0,
         totalReviews: 0,
@@ -729,36 +632,18 @@ export class ProductsService {
     const { page = 1, limit = 10, rating, sortBy = 'newest' } = query;
     const skip = (page - 1) * limit;
 
-    const where: any = {
-      productId,
-      status: 'APPROVED',
-    };
-
-    if (rating) {
-      where.rating = rating;
-    }
+    const where: any = { productId, status: 'APPROVED' };
+    if (rating) where.rating = rating;
 
     let orderBy: any = { createdAt: 'desc' };
-    if (sortBy === 'helpful') {
-      orderBy = { helpfulCount: 'desc' };
-    } else if (sortBy === 'highest_rating') {
-      orderBy = { rating: 'desc' };
-    } else if (sortBy === 'lowest_rating') {
-      orderBy = { rating: 'asc' };
-    }
+    if (sortBy === 'helpful') orderBy = { helpfulCount: 'desc' };
+    else if (sortBy === 'highest_rating') orderBy = { rating: 'desc' };
+    else if (sortBy === 'lowest_rating') orderBy = { rating: 'asc' };
 
     const [reviews, total] = await Promise.all([
       this.prisma.review.findMany({
         where,
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          },
-        },
+        include: { user: { select: { id: true, name: true, email: true } } },
         orderBy,
         skip,
         take: limit,
@@ -781,18 +666,14 @@ export class ProductsService {
     const now = new Date();
     let isExpired = false;
     let isExpiringSoon = false;
-    let daysUntilExpiry: number | undefined = undefined;
+    let daysUntilExpiry: number | undefined;
 
-    // Calculer les propriétés d'expiration
     if (product.expirationDate) {
-      const expiryDate = new Date(product.expirationDate);
-      const timeDiff = expiryDate.getTime() - now.getTime();
-      daysUntilExpiry = Math.ceil(timeDiff / (1000 * 3600 * 24));
-      
-      isExpired = expiryDate < now;
-      if (daysUntilExpiry !== undefined) {
-        isExpiringSoon = !isExpired && daysUntilExpiry <= 30;
-      }
+      const expiry = new Date(product.expirationDate);
+      const diff = expiry.getTime() - now.getTime();
+      daysUntilExpiry = Math.ceil(diff / (1000 * 3600 * 24));
+      isExpired = expiry < now;
+      isExpiringSoon = !isExpired && daysUntilExpiry <= 30;
     }
 
     return {
@@ -815,28 +696,22 @@ export class ProductsService {
       minStock: product.minStock,
       maxStock: product.maxStock,
       images: product.images || [],
-      
-      // Nouveaux champs
       expirationDate: product.expirationDate || undefined,
       manufacturingDate: product.manufacturingDate || undefined,
       shelfLifeMonths: product.shelfLifeMonths || undefined,
       batchNumber: product.batchNumber || undefined,
       storageConditions: product.storageConditions || undefined,
-      
-      // Champs système
       status: product.status,
       createdAt: product.createdAt,
       updatedAt: product.updatedAt,
-      
-      // Créateur
       userId: product.userId || undefined,
-      user: product.user ? {
-        id: product.user.id,
-        name: product.user.name,
-        email: product.user.email,
-      } : undefined,
-      
-      // Propriétés calculées
+      user: product.user
+        ? {
+            id: product.user.id,
+            name: product.user.name,
+            email: product.user.email,
+          }
+        : undefined,
       isExpired,
       isExpiringSoon,
       daysUntilExpiry,

@@ -1,12 +1,11 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../shared/prisma/prisma.service';
-import { CreateSupportDto } from './dto/create-support.dto';
+import { CreateSupportDto, SupportTheme, SupportType, SupportStatus } from './dto/create-support.dto';
 import { UpdateSupportDto } from './dto/update-support.dto';
 import { SupportResponseDto } from './dto/support-response.dto';
 import { CloudinaryService } from '../shared/cloudinary/cloudinary.service';
-import { SupportStatus, SupportTheme, SupportType } from './dto/create-support.dto';
 import { Express } from 'express';
-import { Multer } from 'multer';
+
 @Injectable()
 export class SupportsService {
   constructor(
@@ -14,68 +13,48 @@ export class SupportsService {
     private cloudinary: CloudinaryService,
   ) {}
 
-  // Méthode pour générer le prochain SKU séquentiel
+  // ------------------------------------------------------------
+  // GÉNÉRATION DU SKU
+  // ------------------------------------------------------------
   private async generateNextSku(): Promise<string> {
-    const lastSupport = await this.prisma.support.findFirst({
-      where: {
-        sku: {
-          startsWith: 'SUP-',
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-      select: {
-        sku: true,
-      },
+    const last = await this.prisma.support.findFirst({
+      where: { sku: { startsWith: 'SUP-' } },
+      orderBy: { createdAt: 'desc' },
+      select: { sku: true },
     });
 
-    let nextNumber = 1;
-    
-    if (lastSupport && lastSupport.sku) {
-      const match = lastSupport.sku.match(/SUP-(\d+)/);
-      if (match && match[1]) {
-        const lastNumber = parseInt(match[1], 10);
-        if (!isNaN(lastNumber)) {
-          nextNumber = lastNumber + 1;
-        }
-      }
+    let next = 1;
+    if (last?.sku) {
+      const match = last.sku.match(/SUP-(\d+)/);
+      if (match) next = parseInt(match[1], 10) + 1;
     }
-
-    return `SUP-${nextNumber.toString().padStart(5, '0')}`;
+    return `SUP-${next.toString().padStart(5, '0')}`;
   }
 
+  // ------------------------------------------------------------
+  // CREATE
+  // ------------------------------------------------------------
   async create(createSupportDto: CreateSupportDto, userId?: string): Promise<SupportResponseDto> {
-    let sku = createSupportDto.sku;
-    if (!sku || sku.trim() === '') {
+    let sku = createSupportDto.sku?.trim();
+    if (!sku) {
       sku = await this.generateNextSku();
-      console.log(`🔢 SKU généré automatiquement: ${sku}`);
     }
 
-    const existingSupport = await this.prisma.support.findFirst({
-      where: { sku },
-    });
-
-    if (existingSupport) {
-      console.log(`⚠️ SKU ${sku} existe déjà, régénération...`);
+    const existing = await this.prisma.support.findFirst({ where: { sku } });
+    if (existing) {
       sku = await this.generateNextSku();
-      console.log(`🔢 Nouveau SKU généré: ${sku}`);
     }
 
     const sellingPrice = createSupportDto.sellingPrice ?? 0;
     const purchasePrice = createSupportDto.purchasePrice ?? 0;
-    
     if (sellingPrice < purchasePrice) {
-      throw new BadRequestException(
-        "Le prix de vente doit être supérieur au prix d'achat",
-      );
+      throw new BadRequestException('Le prix de vente doit être supérieur au prix d\'achat');
     }
 
-    // Préparer les données en s'assurant que les tableaux sont corrects
     const supportData = {
       name: createSupportDto.name,
       description: createSupportDto.description,
-      sku: sku,
+      sku,
       type: createSupportDto.type,
       theme: createSupportDto.theme,
       material: createSupportDto.material,
@@ -85,8 +64,8 @@ export class SupportsService {
       capacity: createSupportDto.capacity ?? 1,
       weight: createSupportDto.weight ?? 0,
       weightUnit: createSupportDto.weightUnit ?? 'g',
-      purchasePrice: purchasePrice,
-      sellingPrice: sellingPrice,
+      purchasePrice,
+      sellingPrice,
       tva: createSupportDto.tva ?? 18,
       stock: createSupportDto.stock ?? 0,
       minStock: createSupportDto.minStock ?? 5,
@@ -96,28 +75,19 @@ export class SupportsService {
       userId,
     };
 
-    console.log('📦 Données de création du support:', {
-      ...supportData,
-      compatibleThemes: supportData.compatibleThemes,
-      images: supportData.images,
-    });
-
     const support = await this.prisma.support.create({
       data: supportData,
       include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
+        user: { select: { id: true, name: true, email: true } },
       },
     });
 
     return this.formatSupportResponse(support);
   }
 
+  // ------------------------------------------------------------
+  // FIND ALL
+  // ------------------------------------------------------------
   async findAll(
     page = 1,
     limit = 20,
@@ -127,7 +97,6 @@ export class SupportsService {
     status?: SupportStatus,
   ) {
     const skip = (page - 1) * limit;
-
     const where: any = {};
 
     if (search) {
@@ -138,17 +107,9 @@ export class SupportsService {
       ];
     }
 
-    if (theme) {
-      where.theme = theme;
-    }
-
-    if (type) {
-      where.type = type;
-    }
-
-    if (status) {
-      where.status = status;
-    }
+    if (theme) where.theme = theme;
+    if (type) where.type = type;
+    if (status) where.status = status;
 
     const [supports, total] = await Promise.all([
       this.prisma.support.findMany({
@@ -156,23 +117,15 @@ export class SupportsService {
         skip,
         take: limit,
         include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          },
+          user: { select: { id: true, name: true, email: true } },
         },
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.support.count({ where }),
     ]);
 
-    console.log(`📊 ${supports.length} supports récupérés`);
-
     return {
-      data: supports.map(support => this.formatSupportResponse(support)),
+      data: supports.map((s) => this.formatSupportResponse(s)),
       meta: {
         total,
         page,
@@ -182,19 +135,14 @@ export class SupportsService {
     };
   }
 
+  // ------------------------------------------------------------
+  // FIND ONE
+  // ------------------------------------------------------------
   async findOne(id: string): Promise<SupportResponseDto> {
-    console.log(`🔍 Recherche du support avec ID: ${id}`);
-    
     const support = await this.prisma.support.findUnique({
       where: { id },
       include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
+        user: { select: { id: true, name: true, email: true } },
       },
     });
 
@@ -202,154 +150,143 @@ export class SupportsService {
       throw new NotFoundException(`Support avec l'ID ${id} non trouvé`);
     }
 
-    const formattedSupport = this.formatSupportResponse(support);
-    console.log('📊 Support formaté pour findOne:', {
-      id: formattedSupport.id,
-      name: formattedSupport.name,
-      images: formattedSupport.images,
-      imagesCount: formattedSupport.images.length,
-    });
-
-    return formattedSupport;
-  }
-
-  async findBySku(sku: string): Promise<SupportResponseDto> {
-    const support = await this.prisma.support.findFirst({
-      where: {
-        sku: {
-          equals: sku,
-        },
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
-    });
-  
-    if (!support) {
-      throw new NotFoundException(`Support avec le SKU ${sku} non trouvé`);
-    }
-  
     return this.formatSupportResponse(support);
   }
 
-  async update(id: string, updateSupportDto: UpdateSupportDto): Promise<SupportResponseDto> {
-    const existingSupport = await this.prisma.support.findUnique({
-      where: { id },
+  // ------------------------------------------------------------
+  // FIND BY SKU
+  // ------------------------------------------------------------
+  async findBySku(sku: string): Promise<SupportResponseDto> {
+    const support = await this.prisma.support.findFirst({
+      where: { sku: { equals: sku } },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+      },
     });
 
-    if (!existingSupport) {
+    if (!support) {
+      throw new NotFoundException(`Support avec le SKU ${sku} non trouvé`);
+    }
+
+    return this.formatSupportResponse(support);
+  }
+
+  // ------------------------------------------------------------
+  // UPDATE – CORRIGÉ : mise à jour partielle stricte
+  // ------------------------------------------------------------
+  async update(id: string, updateSupportDto: UpdateSupportDto): Promise<SupportResponseDto> {
+    const existing = await this.prisma.support.findUnique({ where: { id } });
+    if (!existing) {
       throw new NotFoundException(`Support avec l'ID ${id} non trouvé`);
     }
 
-    if (updateSupportDto.sku && updateSupportDto.sku !== existingSupport.sku) {
+    // Vérifier l'unicité du SKU si modifié
+    if (updateSupportDto.sku && updateSupportDto.sku !== existing.sku) {
       const skuExists = await this.prisma.support.findFirst({
-        where: {
-          sku: {
-            equals: updateSupportDto.sku,
-          },
-          NOT: {
-            id,
-          },
-        },
+        where: { sku: updateSupportDto.sku, NOT: { id } },
       });
-
       if (skuExists) {
         throw new BadRequestException('Un support avec ce SKU existe déjà');
       }
     }
 
-    const sellingPrice = updateSupportDto.sellingPrice ?? existingSupport.sellingPrice;
-    const purchasePrice = updateSupportDto.purchasePrice ?? existingSupport.purchasePrice;
-    
+    // Construction du payload – UNIQUEMENT les champs présents
+    const updatePayload: any = {};
+
+    const scalarFields = [
+      'name', 'description', 'sku', 'type', 'theme', 'material',
+      'color', 'dimensions', 'weightUnit', 'status',
+    ];
+    scalarFields.forEach((field) => {
+      if (updateSupportDto[field] !== undefined) {
+        updatePayload[field] = updateSupportDto[field];
+      }
+    });
+
+    const numberFields = [
+      'capacity', 'weight', 'purchasePrice', 'sellingPrice',
+      'tva', 'stock', 'minStock', 'maxStock',
+    ];
+    numberFields.forEach((field) => {
+      if (updateSupportDto[field] !== undefined) {
+        const val = updateSupportDto[field];
+        updatePayload[field] = val === null ? null : Number(val);
+      }
+    });
+
+    // compatibleThemes – UNIQUEMENT si présent
+    if (updateSupportDto.compatibleThemes !== undefined) {
+      updatePayload.compatibleThemes = this.ensureArray(updateSupportDto.compatibleThemes, []);
+    }
+
+    // images – UNIQUEMENT si présent
+    if (updateSupportDto.images !== undefined) {
+      updatePayload.images = this.ensureArray(updateSupportDto.images, []);
+    }
+
+    // Vérifier la cohérence des prix après mise à jour
+    const sellingPrice = updatePayload.sellingPrice ?? existing.sellingPrice;
+    const purchasePrice = updatePayload.purchasePrice ?? existing.purchasePrice;
     if (sellingPrice < purchasePrice) {
       throw new BadRequestException('Le prix de vente doit être supérieur au prix d\'achat');
     }
 
-    const updateData: any = { ...updateSupportDto };
-    
-    if (updateSupportDto.compatibleThemes !== undefined) {
-      updateData.compatibleThemes = this.ensureArray(updateSupportDto.compatibleThemes, []);
-    }
-
-    if (updateSupportDto.images !== undefined) {
-      updateData.images = this.ensureArray(updateSupportDto.images, []);
-    }
-
-    console.log('🔄 Données de mise à jour:', {
-      ...updateData,
-      images: updateData.images,
-      imagesCount: updateData.images?.length || 0,
-    });
-
-    const support = await this.prisma.support.update({
+    const updated = await this.prisma.support.update({
       where: { id },
-      data: updateData,
+      data: updatePayload,
       include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
+        user: { select: { id: true, name: true, email: true } },
       },
     });
 
-    return this.formatSupportResponse(support);
+    return this.formatSupportResponse(updated);
   }
 
+  // ------------------------------------------------------------
+  // DELETE
+  // ------------------------------------------------------------
   async remove(id: string): Promise<void> {
-    const existingSupport = await this.prisma.support.findUnique({
-      where: { id },
-    });
-
-    if (!existingSupport) {
+    const existing = await this.prisma.support.findUnique({ where: { id } });
+    if (!existing) {
       throw new NotFoundException(`Support avec l'ID ${id} non trouvé`);
     }
 
     const salesCount = await this.prisma.saleItem.count({
       where: { supportId: id },
     });
-
     if (salesCount > 0) {
-      throw new BadRequestException('Ce support ne peut pas être supprimé car il est utilisé dans des ventes');
+      throw new BadRequestException(
+        'Ce support ne peut pas être supprimé car il est utilisé dans des ventes',
+      );
     }
 
-    if (existingSupport.images && existingSupport.images.length > 0) {
-      const publicIds = this.cloudinary.extractPublicIdsFromUrls(existingSupport.images);
+    // Supprimer les images de Cloudinary si nécessaire
+    if (existing.images && existing.images.length > 0) {
+      const publicIds = this.cloudinary.extractPublicIdsFromUrls(existing.images);
       if (publicIds.length > 0) {
         try {
           await this.cloudinary.deleteMultipleImages(publicIds);
         } catch (error) {
-          console.error('Erreur lors de la suppression des images:', error);
+          console.error('Erreur suppression images Cloudinary:', error);
         }
       }
     }
 
-    await this.prisma.support.delete({
-      where: { id },
-    });
+    await this.prisma.support.delete({ where: { id } });
   }
 
+  // ------------------------------------------------------------
+  // UPLOAD IMAGE
+  // ------------------------------------------------------------
   async uploadImage(id: string, file: Express.Multer.File): Promise<SupportResponseDto> {
-    const support = await this.prisma.support.findUnique({
-      where: { id },
-    });
-
+    const support = await this.prisma.support.findUnique({ where: { id } });
     if (!support) {
       throw new NotFoundException(`Support avec l'ID ${id} non trouvé`);
     }
 
     try {
       const uploadResult = await this.cloudinary.uploadImage(file);
-      
-      const updatedSupport = await this.prisma.support.update({
+      const updated = await this.prisma.support.update({
         where: { id },
         data: {
           images: {
@@ -357,28 +294,21 @@ export class SupportsService {
           },
         },
         include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          },
+          user: { select: { id: true, name: true, email: true } },
         },
       });
-
-      return this.formatSupportResponse(updatedSupport);
+      return this.formatSupportResponse(updated);
     } catch (error) {
-      console.error('Erreur lors de l\'upload de l\'image:', error);
+      console.error('Erreur upload image:', error);
       throw new BadRequestException('Erreur lors du téléchargement de l\'image');
     }
   }
 
+  // ------------------------------------------------------------
+  // REMOVE IMAGE
+  // ------------------------------------------------------------
   async removeImage(id: string, imageUrl: string): Promise<SupportResponseDto> {
-    const support = await this.prisma.support.findUnique({
-      where: { id },
-    });
-
+    const support = await this.prisma.support.findUnique({ where: { id } });
     if (!support) {
       throw new NotFoundException(`Support avec l'ID ${id} non trouvé`);
     }
@@ -389,30 +319,27 @@ export class SupportsService {
         await this.cloudinary.deleteImage(publicId);
       }
     } catch (error) {
-      console.error('Erreur lors de la suppression de l\'image:', error);
+      console.error('Erreur suppression image Cloudinary:', error);
     }
 
-    const updatedSupport = await this.prisma.support.update({
+    const updated = await this.prisma.support.update({
       where: { id },
       data: {
         images: {
-          set: support.images.filter(img => img !== imageUrl),
+          set: support.images.filter((img) => img !== imageUrl),
         },
       },
       include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
+        user: { select: { id: true, name: true, email: true } },
       },
     });
 
-    return this.formatSupportResponse(updatedSupport);
+    return this.formatSupportResponse(updated);
   }
 
+  // ------------------------------------------------------------
+  // STATS
+  // ------------------------------------------------------------
   async getStats() {
     const total = await this.prisma.support.count();
     const active = await this.prisma.support.count({ where: { status: 'actif' } });
@@ -420,9 +347,7 @@ export class SupportsService {
       _sum: { stock: true },
     });
     const totalValue = await this.prisma.support.aggregate({
-      _sum: {
-        purchasePrice: true,
-      },
+      _sum: { purchasePrice: true },
     });
 
     return {
@@ -433,70 +358,62 @@ export class SupportsService {
     };
   }
 
+  // ------------------------------------------------------------
+  // LOW STOCK
+  // ------------------------------------------------------------
   async getLowStock() {
     const supports = await this.prisma.support.findMany({
       where: {
-        stock: {
-          lte: this.prisma.support.fields.minStock,
-        },
+        stock: { lte: this.prisma.support.fields.minStock },
         status: 'actif',
       },
       include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
+        user: { select: { id: true, name: true, email: true } },
       },
     });
 
-    return supports.map(support => this.formatSupportResponse(support));
+    return supports.map((s) => this.formatSupportResponse(s));
   }
 
+  // ------------------------------------------------------------
+  // CATEGORIES (types)
+  // ------------------------------------------------------------
   async getCategories() {
     const types = await this.prisma.support.groupBy({
       by: ['type'],
-      _count: {
-        _all: true,
-      },
-      orderBy: {
-        type: 'asc',
-      },
+      _count: { _all: true },
+      orderBy: { type: 'asc' },
     });
 
-    return types.map(type => ({
-      name: type.type,
-      count: type._count._all,
+    return types.map((t) => ({
+      name: t.type,
+      count: t._count._all,
     }));
   }
 
+  // ------------------------------------------------------------
+  // FILTER BY THEME
+  // ------------------------------------------------------------
   async filterByTheme(theme: string) {
     const supports = await this.prisma.support.findMany({
       include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
+        user: { select: { id: true, name: true, email: true } },
       },
     });
 
-    const filteredSupports = supports.filter(support => {
+    const filtered = supports.filter((support) => {
       const themes = (support.compatibleThemes as string[]) ?? [];
       return support.theme === theme || themes.includes(theme);
-    });    
+    });
 
-    return filteredSupports.map(support => this.formatSupportResponse(support));
+    return filtered.map((s) => this.formatSupportResponse(s));
   }
 
+  // ------------------------------------------------------------
+  // UTILITAIRES PRIVÉES
+  // ------------------------------------------------------------
   private formatSupportResponse(support: any): SupportResponseDto {
-    // S'assurer que les images sont toujours un tableau valide
     let images: string[] = [];
-    
     if (support.images) {
       if (Array.isArray(support.images)) {
         images = support.images;
@@ -510,9 +427,7 @@ export class SupportsService {
       }
     }
 
-    // S'assurer que compatibleThemes est toujours un tableau valide
     let compatibleThemes: string[] = [];
-    
     if (support.compatibleThemes) {
       if (Array.isArray(support.compatibleThemes)) {
         compatibleThemes = support.compatibleThemes;
@@ -526,13 +441,6 @@ export class SupportsService {
       }
     }
 
-    // Log pour le débogage
-    console.log(`🖼️ Formatting support ${support.id} - Images:`, {
-      rawImages: support.images,
-      formattedImages: images,
-      imagesCount: images.length,
-    });
-
     return {
       id: support.id,
       name: support.name,
@@ -543,7 +451,7 @@ export class SupportsService {
       material: support.material,
       color: support.color,
       dimensions: support.dimensions,
-      compatibleThemes: compatibleThemes,
+      compatibleThemes,
       capacity: support.capacity,
       weight: support.weight ?? 0,
       weightUnit: support.weightUnit ?? 'g',
@@ -553,7 +461,7 @@ export class SupportsService {
       stock: support.stock,
       minStock: support.minStock,
       maxStock: support.maxStock,
-      images: images,
+      images,
       status: support.status,
       createdAt: support.createdAt,
       updatedAt: support.updatedAt,
@@ -561,16 +469,9 @@ export class SupportsService {
     };
   }
 
-  // Méthode utilitaire pour s'assurer qu'une valeur est un tableau
   private ensureArray(value: any, defaultValue: any[] = []): any[] {
-    if (value === undefined || value === null) {
-      return defaultValue;
-    }
-    
-    if (Array.isArray(value)) {
-      return value;
-    }
-    
+    if (value === undefined || value === null) return defaultValue;
+    if (Array.isArray(value)) return value;
     if (typeof value === 'string') {
       try {
         const parsed = JSON.parse(value);
@@ -579,7 +480,6 @@ export class SupportsService {
         return [value];
       }
     }
-    
     return defaultValue;
   }
 }
