@@ -1,3 +1,52 @@
+// {
+//   "compilerOptions": {
+//     /* Module system */
+//     "module": "CommonJS",
+//     "moduleResolution": "node",
+//     "resolvePackageJsonExports": false,
+
+//     /* Output */
+//     "target": "ES2021",
+//     "outDir": "./dist",
+//     "sourceMap": true,
+//     "declaration": false,
+//     "removeComments": true,
+
+//     /* NestJS decorators */
+//     "emitDecoratorMetadata": true,
+//     "experimentalDecorators": true,
+
+//     /* Interop */
+//     "esModuleInterop": true,
+//     "allowSyntheticDefaultImports": true,
+
+//     /* Type safety */
+//     "strictNullChecks": true,
+//     "noImplicitAny": false,
+
+//     /* Performance */
+//     "incremental": false,
+//     "skipLibCheck": true,
+
+//     /* Include custom types */
+//     "typeRoots": ["./node_modules/@types", "./src/types"],
+    
+//     /* Misc */
+//     "baseUrl": "./",
+//     "forceConsistentCasingInFileNames": true,
+//     "strictBindCallApply": false,
+//     "noFallthroughCasesInSwitch": false
+//   },
+//   "include": ["src/**/*", "src/types.d.ts"],
+//   "exclude": ["node_modules", "dist", "test"]
+// }
+
+
+
+
+
+
+
 {
   "compilerOptions": {
     /* Module system */
@@ -37,6 +86,10 @@
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false
   },
-  "include": ["src/**/*", "src/types.d.ts"],
+  "include": [
+    "src/**/*",
+    "src/types.d.ts",
+    "prisma.config.ts" 
+  ],
   "exclude": ["node_modules", "dist", "test"]
 }
