@@ -23,11 +23,19 @@ async function bootstrap() {
   app.use(compression()); // Maintenant ça devrait fonctionner
 
   /* ------------------ CORS ------------------ */
+  // const allowedOrigins = [
+  //   'https://oplaisir-gules.vercel.app',
+  //   'http://localhost:5173',
+  //   'http://localhost:3000',
+  //   process.env.FRONTEND_URL,
+  // ].filter(Boolean);
+
   const allowedOrigins = [
-    'https://oplaisir-gules.vercel.app',
+    'https://oplaisir-gules.vercel.app', 
+    'https://www.oplaisir-ci.com',       
     'http://localhost:5173',
     'http://localhost:3000',
-    process.env.FRONTEND_URL,
+    process.env.FRONTEND_URL,       
   ].filter(Boolean);
 
   app.enableCors({
