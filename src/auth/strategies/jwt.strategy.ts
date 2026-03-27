@@ -35,7 +35,6 @@
 
 
 
-
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
@@ -50,8 +49,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   ) {
     const secret = configService.get<string>('JWT_SECRET');
     if (!secret) {
-      throw new Error('JWT_SECRET is not defined in environment variables');
+      throw new Error('❌ JWT_SECRET is not defined in environment variables');
     }
+    console.log('🔐 JWT strategy using secret (first 4 chars):', secret.slice(0, 4));
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
