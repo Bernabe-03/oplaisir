@@ -44,7 +44,7 @@ import {
     @IsOptional()
     @IsNumber()
     discountAmount?: number;
-  
+   
     @IsOptional()
     @IsString()
     discountType?: string;

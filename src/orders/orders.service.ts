@@ -1,3 +1,4 @@
+
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../shared/prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -6,11 +7,9 @@ import { ValidateOrderDto } from './dto/validate-order.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
 
-// Types pour les enums
 type OrderStatus = 'PENDING' | 'VALIDATED' | 'REJECTED' | 'COMPLETED' | 'CANCELLED' | 'DELIVERED';
 type PaymentStatus = 'PENDING' | 'PAID' | 'PARTIALLY_PAID' | 'FAILED' | 'REFUNDED';
 
-// Type pour les items normalisés
 interface NormalizedOrderItem {
   type: 'product' | 'coffret' | 'support';
   id: string;
@@ -32,6 +31,112 @@ export class OrdersService {
     private notificationsGateway: NotificationsGateway,
   ) {}
 
+  /**
+   * Décrémente le stock des produits, supports et coffrets dans une transaction.
+   * Utilise update avec vérification préalable pour garantir l'intégrité.
+   */
+  private async decrementStockInTransaction(prisma: any, items: any[]) {
+    console.log('🚚 [decrementStockInTransaction] Début de la décrémentation...');
+    for (const item of items) {
+      if (!item.id || !item.type) {
+        throw new BadRequestException(`Item invalide : ${JSON.stringify(item)}`);
+      }
+      console.log(`🔍 Décrémentation pour: ${item.type} ${item.id} - ${item.name} (${item.quantity})`);
+
+      if (item.type === 'product') {
+        // Vérifier que le produit existe et a assez de stock
+        const product = await prisma.product.findUnique({
+          where: { id: item.id },
+        });
+        if (!product) {
+          throw new BadRequestException(`Produit ${item.name} (ID: ${item.id}) non trouvé`);
+        }
+        if (product.stock < item.quantity) {
+          throw new BadRequestException(
+            `Stock insuffisant pour le produit ${item.name}. Disponible: ${product.stock}, Demandé: ${item.quantity}`
+          );
+        }
+        // Mise à jour atomique
+        const updated = await prisma.product.update({
+          where: { id: item.id },
+          data: { stock: { decrement: item.quantity } },
+        });
+        console.log(`📦 Après: stock produit ${item.id} = ${updated.stock}`);
+      } 
+      else if (item.type === 'support') {
+        const support = await prisma.support.findUnique({ where: { id: item.id } });
+        if (!support) {
+          throw new BadRequestException(`Support ${item.name} (ID: ${item.id}) non trouvé`);
+        }
+        if (support.stock === 999) {
+          console.log(`⚠️ Support ${item.id} a stock illimité, pas de décrémentation`);
+          continue; // Ne pas décrémenter
+        }
+        if (support.stock < item.quantity) {
+          throw new BadRequestException(
+            `Stock insuffisant pour le support ${item.name}. Disponible: ${support.stock}, Demandé: ${item.quantity}`
+          );
+        }
+        const updated = await prisma.support.update({
+          where: { id: item.id },
+          data: { stock: { decrement: item.quantity } },
+        });
+        console.log(`📦 Après: stock support ${item.id} = ${updated.stock}`);
+      } 
+      else if (item.type === 'coffret') {
+        const coffret = await prisma.coffret.findUnique({ where: { id: item.id } });
+        if (!coffret) {
+          throw new BadRequestException(`Coffret ${item.name} (ID: ${item.id}) non trouvé`);
+        }
+        if (coffret.stock < item.quantity) {
+          throw new BadRequestException(
+            `Stock insuffisant pour le coffret ${item.name}. Disponible: ${coffret.stock}, Demandé: ${item.quantity}`
+          );
+        }
+        const updated = await prisma.coffret.update({
+          where: { id: item.id },
+          data: { stock: { decrement: item.quantity } },
+        });
+        console.log(`📦 Après: stock coffret ${item.id} = ${updated.stock}`);
+      }
+    }
+    console.log('✅ [decrementStockInTransaction] Fin de la décrémentation');
+  }
+
+  private async restoreStock(orderId: string) {
+    const items = await this.prisma.orderItem.findMany({ where: { orderId } });
+    for (const item of items) {
+      try {
+        if (item.type === 'product' && item.productId) {
+          await this.prisma.product.update({
+            where: { id: item.productId },
+            data: { stock: { increment: item.quantity } }
+          });
+          console.log(`🔄 Stock produit ${item.productId} restauré de ${item.quantity}`);
+        } 
+        else if (item.type === 'support' && item.supportId) {
+          const support = await this.prisma.support.findUnique({ where: { id: item.supportId } });
+          if (support && support.stock !== 999) {
+            await this.prisma.support.update({
+              where: { id: item.supportId },
+              data: { stock: { increment: item.quantity } }
+            });
+            console.log(`🔄 Stock support ${item.supportId} restauré de ${item.quantity}`);
+          }
+        } 
+        else if (item.type === 'coffret' && item.coffretId) {
+          await this.prisma.coffret.update({
+            where: { id: item.coffretId },
+            data: { stock: { increment: item.quantity } }
+          });
+          console.log(`🔄 Stock coffret ${item.coffretId} restauré de ${item.quantity}`);
+        }
+      } catch (error) {
+        console.error(`❌ Erreur restauration ${item.type} ${item.productId || item.supportId || item.coffretId}:`, error);
+      }
+    }
+  }
+
   async generateOrderNumber(): Promise<string> {
     const date = new Date();
     const year = date.getFullYear().toString().slice(-2);
@@ -46,62 +151,35 @@ export class OrdersService {
         }
       }
     });
-    
     const sequence = (todayOrdersCount + 1).toString().padStart(4, '0');
     return `CMD-${year}${month}${day}-${sequence}`;
   }
 
   async createOrder(createOrderDto: CreateOrderDto, userId?: string) {
-    // D'abord, normaliser les items pour corriger les types incorrects
+    console.log('🚀🚀🚀 [createOrder] DÉBUT DE LA MÉTHODE 🚀🚀🚀');
+    // 1. Normalisation
     const normalizedItems = await this.normalizeOrderItems(createOrderDto.items);
-    
-    // Remplacer les items dans le DTO
     createOrderDto.items = normalizedItems;
-    
-    // Vérifier le stock pour chaque produit, support et coffret
+    console.log('📋 Items reçus après normalisation :', JSON.stringify(createOrderDto.items, null, 2));
+
+    // 2. Validation préalable (stock et existence)
     for (const item of createOrderDto.items) {
+      if (!item.id || !item.type) {
+        throw new BadRequestException(`Item invalide : ${JSON.stringify(item)}`);
+      }
+
       if (item.type === 'product') {
-        const product = await this.prisma.product.findUnique({
-          where: { id: item.id }
-        });
-        
-        if (!product) {
-          throw new BadRequestException(`Produit ${item.name} non trouvé`);
-        }
-        
+        const product = await this.prisma.product.findUnique({ where: { id: item.id } });
+        if (!product) throw new BadRequestException(`Produit ${item.name} (ID: ${item.id}) non trouvé`);
         if (product.stock < item.quantity) {
-          throw new BadRequestException(
-            `Stock insuffisant pour ${product.name}. Disponible: ${product.stock}, Demandé: ${item.quantity}`
-          );
+          throw new BadRequestException(`Stock insuffisant pour ${product.name}. Disponible: ${product.stock}, Demandé: ${item.quantity}`);
         }
       }
       
-      // VÉRIFICATION POUR LES SUPPORTS
       if (item.type === 'support') {
-        console.log(`🔍 Recherche du support:`, {
-          id: item.id,
-          sku: item.sku,
-          name: item.name,
-          type: item.type
-        });
-        
         let support: any = null;
-        
-        // Chercher par ID
-        if (item.id) {
-          support = await this.prisma.support.findUnique({
-            where: { id: item.id }
-          });
-        }
-        
-        // Si pas trouvé, chercher par SKU
-        if (!support && item.sku) {
-          support = await this.prisma.support.findUnique({
-            where: { sku: item.sku }
-          });
-        }
-        
-        // Si toujours pas trouvé, chercher par nom (approximatif)
+        if (item.id) support = await this.prisma.support.findUnique({ where: { id: item.id } });
+        if (!support && item.sku) support = await this.prisma.support.findUnique({ where: { sku: item.sku } });
         if (!support && item.name) {
           const supports = await this.prisma.support.findMany({
             where: {
@@ -111,18 +189,10 @@ export class OrdersService {
               ]
             }
           });
-          
-          if (supports.length > 0) {
-            support = supports[0];
-            console.log(`✅ Support trouvé par nom similaire: ${support.name} (ID: ${support.id})`);
-          }
+          if (supports.length) support = supports[0];
         }
         
-        // Si le support n'existe pas, créer un enregistrement temporaire
         if (!support) {
-          console.warn(`⚠️ Support "${item.name}" non trouvé, création d'un enregistrement temporaire`);
-          
-          // Vérifier si le SKU commence par SUP- pour confirmer que c'est un support
           if (item.sku && item.sku.startsWith('SUP-')) {
             support = await this.prisma.support.create({
               data: {
@@ -141,219 +211,167 @@ export class OrdersService {
                   : ['standard']
               }
             });
-            
-            console.log(`✅ Support temporaire créé: ${support.name} (ID: ${support.id})`);
           } else {
-            throw new BadRequestException(
-              `Support "${item.name}" (ID: ${item.id}, SKU: ${item.sku}) non trouvé dans la base de données`
-            );
+            throw new BadRequestException(`Support "${item.name}" (ID: ${item.id}, SKU: ${item.sku}) non trouvé dans la base de données`);
           }
         }
-        
-        // Mettre à jour l'ID avec celui de la base de données
         item.id = support.id;
-        
-        // Vérifier le stock (sauf pour les supports temporaires avec stock 999)
-        if (support && support.stock < item.quantity && support.stock !== 999) {
-          throw new BadRequestException(
-            `Stock insuffisant pour le support ${support.name}. Disponible: ${support.stock}, Demandé: ${item.quantity}`
-          );
+        if (support.stock < item.quantity && support.stock !== 999) {
+          throw new BadRequestException(`Stock insuffisant pour le support ${support.name}. Disponible: ${support.stock}, Demandé: ${item.quantity}`);
         }
       }
       
-      // Vérification pour les coffrets
       if (item.type === 'coffret') {
-        const coffret = await this.prisma.coffret.findUnique({
-          where: { id: item.id }
-        });
-        
-        if (!coffret) {
-          throw new BadRequestException(`Coffret ${item.name} non trouvé`);
-        }
-        
+        const coffret = await this.prisma.coffret.findUnique({ where: { id: item.id } });
+        if (!coffret) throw new BadRequestException(`Coffret ${item.name} (ID: ${item.id}) non trouvé`);
         if (coffret.stock < item.quantity) {
-          throw new BadRequestException(
-            `Stock insuffisant pour ${coffret.name}. Disponible: ${coffret.stock}, Demandé: ${item.quantity}`
-          );
+          throw new BadRequestException(`Stock insuffisant pour ${coffret.name}. Disponible: ${coffret.stock}, Demandé: ${item.quantity}`);
         }
       }
     }
-  
+
     const orderNumber = await this.generateOrderNumber();
-    
-    // Calcul des totaux
-    const subtotal = createOrderDto.subtotal || createOrderDto.items.reduce(
-      (sum, item) => sum + item.totalPrice, 
-      0
-    );
-    
+    const subtotal = createOrderDto.subtotal || createOrderDto.items.reduce((sum, item) => sum + item.totalPrice, 0);
     const discountAmount = createOrderDto.discount?.amount || 0;
     const total = createOrderDto.total || (subtotal - discountAmount + createOrderDto.deliveryCost);
-  
-    // CRÉATION DE LA COMMANDE AVEC LES ITEMS
-    const order = await this.prisma.order.create({
-      data: {
-        orderNumber,
-        customerName: createOrderDto.customerName,
-        customerPhone: createOrderDto.customerPhone,
-        customerEmail: createOrderDto.customerEmail,
-        customerAddress: createOrderDto.customerAddress,
-        customerCommune: createOrderDto.customerCommune,
-        deliveryNotes: createOrderDto.deliveryNotes,
-        
-        subtotal,
-        discountAmount,
-        discountType: createOrderDto.discount?.type || 'fixed',
-        discountCode: createOrderDto.discount?.code,
-        discountLabel: createOrderDto.discount?.label,
-        deliveryCost: createOrderDto.deliveryCost,
-        total,
-        
-        paymentMethod: createOrderDto.paymentMethod,
-        requiresValidation: createOrderDto.requiresValidation ?? true,
-        status: 'PENDING',
-        paymentStatus: 'PENDING',
-        
-        userId,
-        
-        items: {
-          create: createOrderDto.items.map(item => {
-            const itemData: any = {
-              type: item.type,
-              name: item.name,
-              sku: item.sku,
-              description: item.description,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              totalPrice: item.totalPrice,
-              images: item.images || [],
-              metadata: item.metadata || {}
-            };
-            
-            if (item.type === 'product') {
-              itemData.productId = item.id;
-            } else if (item.type === 'coffret') {
-              itemData.coffretId = item.id;
-            } else if (item.type === 'support') {
-              itemData.supportId = item.id;
-            }
-            
-            return itemData;
-          })
-        },
-        
-        history: {
-          create: {
+
+    // 3. Transaction
+    try {
+      console.log('🔄 Début de la transaction Prisma...');
+      const order = await this.prisma.$transaction(async (prisma) => {
+        // Création de la commande
+        const newOrder = await prisma.order.create({
+          data: {
+            orderNumber,
+            customerName: createOrderDto.customerName,
+            customerPhone: createOrderDto.customerPhone,
+            customerEmail: createOrderDto.customerEmail,
+            customerAddress: createOrderDto.customerAddress,
+            customerCommune: createOrderDto.customerCommune,
+            deliveryNotes: createOrderDto.deliveryNotes,
+            subtotal,
+            discountAmount,
+            discountType: createOrderDto.discount?.type || 'fixed',
+            discountCode: createOrderDto.discount?.code,
+            discountLabel: createOrderDto.discount?.label,
+            deliveryCost: createOrderDto.deliveryCost,
+            total,
+            paymentMethod: createOrderDto.paymentMethod,
+            requiresValidation: createOrderDto.requiresValidation ?? true,
             status: 'PENDING',
-            action: 'created',
-            description: 'Commande créée par le client',
+            paymentStatus: 'PENDING',
             userId,
-            metadata: {}
+            items: {
+              create: createOrderDto.items.map(item => {
+                const itemData: any = {
+                  type: item.type,
+                  name: item.name,
+                  sku: item.sku,
+                  description: item.description,
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                  totalPrice: item.totalPrice,
+                  images: item.images || [],
+                  metadata: item.metadata || {}
+                };
+                if (item.type === 'product') itemData.productId = item.id;
+                else if (item.type === 'coffret') itemData.coffretId = item.id;
+                else if (item.type === 'support') itemData.supportId = item.id;
+                return itemData;
+              })
+            },
+            history: {
+              create: {
+                status: 'PENDING',
+                action: 'created',
+                description: 'Commande créée par le client',
+                userId,
+                metadata: {}
+              }
+            }
+          },
+          include: { items: true, history: { orderBy: { createdAt: 'desc' }, take: 1 } }
+        });
+
+        // Décrémentation du stock
+        await this.decrementStockInTransaction(prisma, createOrderDto.items);
+        console.log(`✅ Stock décrémenté pour la commande ${orderNumber}`);
+        return newOrder;
+      });
+
+      // Après la transaction, relire les stocks pour vérifier
+      console.log('🔍 Vérification post-transaction :');
+      for (const item of createOrderDto.items) {
+        if (item.type === 'product') {
+          const product = await this.prisma.product.findUnique({ where: { id: item.id } });
+          console.log(`   - Produit ${item.name} (${item.id}) : stock actuel = ${product?.stock}`);
+        } else if (item.type === 'support') {
+          const support = await this.prisma.support.findUnique({ where: { id: item.id } });
+          if (support && support.stock !== 999) {
+            console.log(`   - Support ${item.name} (${item.id}) : stock actuel = ${support?.stock}`);
           }
-        }
-      },
-      include: {
-        items: true,
-        history: {
-          orderBy: { createdAt: 'desc' },
-          take: 1
+        } else if (item.type === 'coffret') {
+          const coffret = await this.prisma.coffret.findUnique({ where: { id: item.id } });
+          console.log(`   - Coffret ${item.name} (${item.id}) : stock actuel = ${coffret?.stock}`);
         }
       }
-    });
 
-    // ÉMISSION DE L'ÉVÉNEMENT DE NOUVELLE COMMANDE
-    this.eventEmitter.emit('order.created', order);
-
-    // ENVOYER LA NOTIFICATION IMMÉDIATEMENT VIA WEBSOCKET
-    await this.notificationsGateway.notifyNewOrder(order);
-
-    console.log(`📢 Notification envoyée pour la nouvelle commande: ${order.orderNumber}`);
-  
-    return order;
+      // Notifications
+      this.eventEmitter.emit('order.created', order);
+      await this.notificationsGateway.notifyNewOrder(order);
+      console.log(`📢 Commande ${order.orderNumber} créée et stock mis à jour.`);
+      return order;
+    } catch (error) {
+      console.error('❌ Échec de la transaction :', error);
+      throw new BadRequestException(`Erreur lors de la création de la commande : ${error.message}`);
+    }
   }
 
-  /**
-   * Normalise les items de commande pour corriger les types incorrects
-   * Par exemple, les supports envoyés comme produits doivent être corrigés en type 'support'
-   */
   async normalizeOrderItems(items: any[]): Promise<NormalizedOrderItem[]> {
     const normalizedItems: NormalizedOrderItem[] = [];
-    
     for (const item of items) {
       const normalizedItem: NormalizedOrderItem = { ...item };
-      
-      // CORRECTION 1: Si le SKU commence par SUP- ou SUPP-, c'est un support
       if (item.sku && (item.sku.startsWith('SUP-') || item.sku.startsWith('SUPP-'))) {
-        console.log(`🔄 Correction automatique: ${item.name} (SKU: ${item.sku}) est un support`);
         normalizedItem.type = 'support';
-        
-        // Vérifier si le support existe dans la base
         if (item.id) {
-          const existingSupport = await this.prisma.support.findUnique({
-            where: { id: item.id }
-          });
-          
+          const existingSupport = await this.prisma.support.findUnique({ where: { id: item.id } });
           if (!existingSupport && item.sku) {
-            // Chercher par SKU
-            const supportBySku = await this.prisma.support.findUnique({
-              where: { sku: item.sku }
-            });
-            
-            if (supportBySku) {
-              normalizedItem.id = supportBySku.id;
-            }
+            const supportBySku = await this.prisma.support.findUnique({ where: { sku: item.sku } });
+            if (supportBySku) normalizedItem.id = supportBySku.id;
           }
         }
       }
-      
-      // CORRECTION 2: Si le SKU commence par COF-, c'est un coffret
       if (item.sku && item.sku.startsWith('COF-')) {
-        console.log(`🔄 Correction automatique: ${item.name} (SKU: ${item.sku}) est un coffret`);
         normalizedItem.type = 'coffret';
       }
-      
-      // CORRECTION 3: Si le nom contient "support", c'est probablement un support
       if (item.name && item.name.toLowerCase().includes('support') && item.type === 'product') {
-        console.log(`🔄 Correction par nom: ${item.name} contient "support"`);
         normalizedItem.type = 'support';
       }
-      
-      // CORRECTION 4: Si l'item a des métadonnées typiques d'un support
       if (item.metadata && (item.metadata.type === 'boite' || item.metadata.type === 'support')) {
-        console.log(`🔄 Correction par métadonnées: ${item.name} a des métadonnées de support`);
         normalizedItem.type = 'support';
       }
-      
       normalizedItems.push(normalizedItem);
     }
-    
     console.log('📋 Items normalisés:', {
       total: normalizedItems.length,
-      byType: normalizedItems.reduce((acc: Record<string, number>, item) => {
+      byType: normalizedItems.reduce((acc, item) => {
         acc[item.type] = (acc[item.type] || 0) + 1;
         return acc;
-      }, {})
+      }, {} as Record<string, number>)
     });
-    
     return normalizedItems;
   }
 
   async getOrders(status?: string, page: number = 1, limit: number = 20) {
     const skip = (page - 1) * limit;
-    
-    const where = status ? { 
-      status: status as OrderStatus 
-    } : {};
+    const where = status ? { status: status as OrderStatus } : {};
     
     const [orders, total] = await Promise.all([
       this.prisma.order.findMany({
         where,
         include: {
           items: true,
-          history: {
-            orderBy: { createdAt: 'desc' },
-            take: 5
-          }
+          history: { orderBy: { createdAt: 'desc' }, take: 5 }
         },
         orderBy: { createdAt: 'desc' },
         skip,
@@ -364,12 +382,7 @@ export class OrdersService {
 
     return {
       orders,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit)
-      }
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) }
     };
   }
 
@@ -377,40 +390,12 @@ export class OrdersService {
     const order = await this.prisma.order.findUnique({
       where: { id },
       include: {
-        items: {
-          include: {
-            product: true,
-            coffret: true,
-            support: true
-          }
-        },
-        history: {
-          orderBy: { createdAt: 'desc' },
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                email: true
-              }
-            }
-          }
-        },
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phone: true
-          }
-        }
+        items: { include: { product: true, coffret: true, support: true } },
+        history: { orderBy: { createdAt: 'desc' }, include: { user: { select: { id: true, name: true, email: true } } } },
+        user: { select: { id: true, name: true, email: true, phone: true } }
       }
     });
-
-    if (!order) {
-      throw new NotFoundException('Commande non trouvée');
-    }
-
+    if (!order) throw new NotFoundException('Commande non trouvée');
     return order;
   }
 
@@ -418,24 +403,11 @@ export class OrdersService {
     const order = await this.prisma.order.findUnique({
       where: { orderNumber },
       include: {
-        items: {
-          include: {
-            product: true,
-            coffret: true,
-            support: true
-          }
-        },
-        history: {
-          orderBy: { createdAt: 'desc' },
-          take: 10
-        }
+        items: { include: { product: true, coffret: true, support: true } },
+        history: { orderBy: { createdAt: 'desc' }, take: 10 }
       }
     });
-
-    if (!order) {
-      throw new NotFoundException('Commande non trouvée');
-    }
-
+    if (!order) throw new NotFoundException('Commande non trouvée');
     return order;
   }
 
@@ -444,10 +416,7 @@ export class OrdersService {
       where: { id },
       include: { items: true }
     });
-
-    if (!order) {
-      throw new NotFoundException('Commande non trouvée');
-    }
+    if (!order) throw new NotFoundException('Commande non trouvée');
 
     let newStatus: OrderStatus;
     let description: string;
@@ -458,51 +427,13 @@ export class OrdersService {
         newStatus = 'VALIDATED';
         action = 'validated';
         description = 'Commande validée par l\'administrateur';
-        
-        // Mettre à jour le stock pour les produits et supports
-        for (const item of order.items) {
-          if (item.type === 'product' && item.productId) {
-            await this.prisma.product.update({
-              where: { id: item.productId },
-              data: {
-                stock: {
-                  decrement: item.quantity
-                }
-              }
-            });
-          } else if (item.type === 'support' && item.supportId) {
-            // Ne pas décrémenter le stock pour les supports temporaires (stock = 999)
-            const support = await this.prisma.support.findUnique({
-              where: { id: item.supportId }
-            });
-            
-            if (support && support.stock !== 999) {
-              await this.prisma.support.update({
-                where: { id: item.supportId },
-                data: {
-                  stock: {
-                    decrement: item.quantity
-                  }
-                }
-              });
-            }
-          } else if (item.type === 'coffret' && item.coffretId) {
-            await this.prisma.coffret.update({
-              where: { id: item.coffretId },
-              data: {
-                stock: {
-                  decrement: item.quantity
-                }
-              }
-            });
-          }
-        }
         break;
         
       case 'reject':
         newStatus = 'REJECTED';
         action = 'rejected';
         description = `Commande rejetée: ${validateOrderDto.reason}`;
+        await this.restoreStock(order.id);
         break;
         
       case 'complete':
@@ -515,45 +446,8 @@ export class OrdersService {
         newStatus = 'CANCELLED';
         action = 'cancelled';
         description = 'Commande annulée';
-        
-        // Restaurer le stock si la commande était validée
-        if (order.status === 'VALIDATED') {
-          for (const item of order.items) {
-            if (item.type === 'product' && item.productId) {
-              await this.prisma.product.update({
-                where: { id: item.productId },
-                data: {
-                  stock: {
-                    increment: item.quantity
-                  }
-                }
-              });
-            } else if (item.type === 'support' && item.supportId) {
-              const support = await this.prisma.support.findUnique({
-                where: { id: item.supportId }
-              });
-              
-              if (support && support.stock !== 999) {
-                await this.prisma.support.update({
-                  where: { id: item.supportId },
-                  data: {
-                    stock: {
-                      increment: item.quantity
-                    }
-                  }
-                });
-              }
-            } else if (item.type === 'coffret' && item.coffretId) {
-              await this.prisma.coffret.update({
-                where: { id: item.coffretId },
-                data: {
-                  stock: {
-                    increment: item.quantity
-                  }
-                }
-              });
-            }
-          }
+        if (order.status === 'PENDING' || order.status === 'VALIDATED') {
+          await this.restoreStock(order.id);
         }
         break;
         
@@ -561,7 +455,6 @@ export class OrdersService {
         throw new BadRequestException('Action non valide');
     }
 
-    // Préparer les métadonnées pour l'historique
     const historyMetadata = {
       reason: validateOrderDto.reason,
       deliveryDate: validateOrderDto.deliveryDate,
@@ -589,15 +482,9 @@ export class OrdersService {
           }
         }
       },
-      include: {
-        history: {
-          orderBy: { createdAt: 'desc' },
-          take: 1
-        }
-      }
+      include: { history: { orderBy: { createdAt: 'desc' }, take: 1 } }
     });
 
-    // ÉMISSION DE L'ÉVÉNEMENT DE CHANGEMENT DE STATUT
     this.eventEmitter.emit('order.status.changed', {
       order: updatedOrder,
       oldStatus: order.status,
@@ -609,20 +496,10 @@ export class OrdersService {
   }
 
   async updateOrder(id: string, updateOrderDto: UpdateOrderDto, userId?: string) {
-    const order = await this.prisma.order.findUnique({
-      where: { id }
-    });
+    const order = await this.prisma.order.findUnique({ where: { id } });
+    if (!order) throw new NotFoundException('Commande non trouvée');
 
-    if (!order) {
-      throw new NotFoundException('Commande non trouvée');
-    }
-
-    // Préparer les métadonnées pour l'historique
-    const historyMetadata = {
-      ...updateOrderDto,
-      updatedAt: new Date().toISOString(),
-      updatedBy: userId
-    };
+    const historyMetadata = { ...updateOrderDto, updatedAt: new Date().toISOString(), updatedBy: userId };
 
     const updatedOrder = await this.prisma.order.update({
       where: { id },
@@ -638,94 +515,32 @@ export class OrdersService {
           }
         }
       },
-      include: {
-        history: {
-          orderBy: { createdAt: 'desc' },
-          take: 1
-        }
-      }
+      include: { history: { orderBy: { createdAt: 'desc' }, take: 1 } }
     });
 
     return updatedOrder;
   }
 
   async deleteOrder(id: string) {
-    const order = await this.prisma.order.findUnique({
-      where: { id }
-    });
+    const order = await this.prisma.order.findUnique({ where: { id } });
+    if (!order) throw new NotFoundException('Commande non trouvée');
 
-    if (!order) {
-      throw new NotFoundException('Commande non trouvée');
+    if (['COMPLETED', 'DELIVERED'].includes(order.status)) {
+      throw new BadRequestException('Impossible de supprimer une commande complétée ou livrée');
     }
 
-    // Ne pas supprimer les commandes complétées ou validées
-    if (['COMPLETED', 'VALIDATED', 'DELIVERED'].includes(order.status)) {
-      throw new BadRequestException('Impossible de supprimer une commande validée ou complétée');
-    }
+    await this.restoreStock(order.id);
 
-    // Restaurer le stock si la commande était validée
-    if (order.status === 'VALIDATED') {
-      const items = await this.prisma.orderItem.findMany({
-        where: { orderId: id }
-      });
-      
-      for (const item of items) {
-        if (item.type === 'product' && item.productId) {
-          await this.prisma.product.update({
-            where: { id: item.productId },
-            data: {
-              stock: {
-                increment: item.quantity
-              }
-            }
-          });
-        } else if (item.type === 'support' && item.supportId) {
-          const support = await this.prisma.support.findUnique({
-            where: { id: item.supportId }
-          });
-          
-          if (support && support.stock !== 999) {
-            await this.prisma.support.update({
-              where: { id: item.supportId },
-              data: {
-                stock: {
-                  increment: item.quantity
-                }
-              }
-            });
-          }
-        } else if (item.type === 'coffret' && item.coffretId) {
-          await this.prisma.coffret.update({
-            where: { id: item.coffretId },
-            data: {
-              stock: {
-                increment: item.quantity
-              }
-            }
-          });
-        }
-      }
-    }
-
-    await this.prisma.order.delete({
-      where: { id }
-    });
-
+    await this.prisma.order.delete({ where: { id } });
     return { message: 'Commande supprimée avec succès' };
   }
 
   async getPendingOrders() {
     return this.prisma.order.findMany({
-      where: {
-        status: 'PENDING',
-        requiresValidation: true
-      },
+      where: { status: 'PENDING', requiresValidation: true },
       include: {
         items: true,
-        history: {
-          orderBy: { createdAt: 'desc' },
-          take: 1
-        }
+        history: { orderBy: { createdAt: 'desc' }, take: 1 }
       },
       orderBy: { createdAt: 'asc' }
     });
@@ -733,10 +548,7 @@ export class OrdersService {
 
   async getPendingOrdersCount(): Promise<number> {
     return this.prisma.order.count({
-      where: {
-        status: 'PENDING',
-        requiresValidation: true,
-      },
+      where: { status: 'PENDING', requiresValidation: true }
     });
   }
 
@@ -778,17 +590,10 @@ export class OrdersService {
 
   async getCustomerOrders(phone: string) {
     return this.prisma.order.findMany({
-      where: {
-        customerPhone: phone
-      },
+      where: { customerPhone: phone },
       include: {
         items: {
-          select: {
-            name: true,
-            quantity: true,
-            unitPrice: true,
-            totalPrice: true
-          }
+          select: { name: true, quantity: true, unitPrice: true, totalPrice: true }
         }
       },
       orderBy: { createdAt: 'desc' }

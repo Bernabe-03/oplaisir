@@ -39,6 +39,7 @@ export class OrdersController {
   @ApiResponse({ status: 400, description: 'Données invalides' })
   @ApiResponse({ status: 500, description: 'Erreur serveur' })
   async create(@Body() createOrderDto: CreateOrderDto, @Request() req) {
+    console.log('🚨🚨🚨 ORDERS CONTROLLER CREATE CALLED 🚨🚨🚨');
     try {
       this.logger.log('📦 Création d\'une nouvelle commande', {
         customerName: createOrderDto.customerName,
