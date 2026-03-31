@@ -416,32 +416,30 @@ export class OrdersService {
       where: { id },
       include: { items: true }
     });
+    
     if (!order) throw new NotFoundException('Commande non trouvée');
-
+  
     let newStatus: OrderStatus;
     let description: string;
     let action: string;
-
+  
     switch (validateOrderDto.action) {
       case 'validate':
         newStatus = 'VALIDATED';
         action = 'validated';
         description = 'Commande validée par l\'administrateur';
         break;
-        
       case 'reject':
         newStatus = 'REJECTED';
         action = 'rejected';
         description = `Commande rejetée: ${validateOrderDto.reason}`;
         await this.restoreStock(order.id);
         break;
-        
       case 'complete':
         newStatus = 'COMPLETED';
         action = 'completed';
         description = 'Commande marquée comme complétée';
         break;
-        
       case 'cancel':
         newStatus = 'CANCELLED';
         action = 'cancelled';
@@ -450,11 +448,20 @@ export class OrdersService {
           await this.restoreStock(order.id);
         }
         break;
-        
       default:
         throw new BadRequestException('Action non valide');
     }
-
+  
+    // --- TRANSFORMATION CRUCIALE POUR PRISMA ---
+    // On force la conversion en objet Date JS avant de l'envoyer à Prisma
+    const deliveryDate = validateOrderDto.deliveryDate 
+      ? new Date(validateOrderDto.deliveryDate) 
+      : undefined;
+      
+    const estimatedDelivery = validateOrderDto.estimatedDelivery 
+      ? new Date(validateOrderDto.estimatedDelivery) 
+      : undefined;
+  
     const historyMetadata = {
       reason: validateOrderDto.reason,
       deliveryDate: validateOrderDto.deliveryDate,
@@ -462,7 +469,7 @@ export class OrdersService {
       action: validateOrderDto.action,
       timestamp: new Date().toISOString()
     };
-
+  
     const updatedOrder = await this.prisma.order.update({
       where: { id },
       data: {
@@ -470,8 +477,9 @@ export class OrdersService {
         validatedBy: userId,
         validatedAt: validateOrderDto.action === 'validate' ? new Date() : null,
         rejectionReason: validateOrderDto.action === 'reject' ? validateOrderDto.reason : null,
-        deliveryDate: validateOrderDto.deliveryDate,
-        estimatedDelivery: validateOrderDto.estimatedDelivery,
+        // On utilise les variables converties ici
+        deliveryDate: deliveryDate,
+        estimatedDelivery: estimatedDelivery,
         history: {
           create: {
             status: newStatus,
@@ -484,14 +492,14 @@ export class OrdersService {
       },
       include: { history: { orderBy: { createdAt: 'desc' }, take: 1 } }
     });
-
+  
     this.eventEmitter.emit('order.status.changed', {
       order: updatedOrder,
       oldStatus: order.status,
       newStatus: updatedOrder.status,
       userId,
     });
-
+  
     return updatedOrder;
   }
 

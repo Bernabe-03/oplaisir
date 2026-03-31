@@ -1,3 +1,4 @@
+// src/orders/dto/validate-order.dto.ts
 import { 
   IsEnum, 
   IsOptional, 
@@ -33,14 +34,20 @@ export class ValidateOrderDto {
   notes?: string;
 
   @IsOptional()
-  @IsString()
-  @Transform(({ value }) => (value === '' || value === null) ? undefined : value)
-  deliveryDate?: string;
+  @Transform(({ value }) => {
+    if (!value || value === '') return undefined;
+    const date = new Date(value);
+    return isNaN(date.getTime()) ? undefined : date;
+  })
+  deliveryDate?: Date;
 
   @IsOptional()
-  @IsString()
-  @Transform(({ value }) => (value === '' || value === null) ? undefined : value)
-  estimatedDelivery?: string;
+  @Transform(({ value }) => {
+    if (!value || value === '') return undefined;
+    const date = new Date(value);
+    return isNaN(date.getTime()) ? undefined : date;
+  })
+  estimatedDelivery?: Date;
 
   @IsOptional()
   @IsNumber()
